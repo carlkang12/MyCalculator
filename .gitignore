@@ -1,0 +1,15 @@
+# 依賴套件
+node_modules/
+
+# 打包產物
+分攤計算器-win32-x64/
+*.zip
+dist/
+
+# 系統檔案
+.DS_Store
+Thumbs.db
+
+# IDE 設定
+.vscode/
+.idea/
