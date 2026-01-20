@@ -36,13 +36,12 @@
         // Electron 檔案系統支援
         const fs = window.require ? window.require('fs') : null;
         const path = window.require ? window.require('path') : null;
-        const { app } = window.require ? window.require('@electron/remote') : { app: null };
         
         // 資料檔案路徑 - 使用應用程式當前目錄
         const getDataPath = () => {
             if (fs && path) {
-                // 取得應用程式執行檔所在目錄
-                const appPath = app ? app.getAppPath() : process.cwd();
+                // 使用 process.cwd() 取得當前工作目錄
+                const appPath = process.cwd();
                 const dataDir = path.join(appPath, 'data');
                 // 確保 data 資料夾存在
                 if (!fs.existsSync(dataDir)) {
