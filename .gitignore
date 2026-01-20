@@ -6,6 +6,9 @@ node_modules/
 *.zip
 dist/
 
+# 歷史紀錄資料（個人資料，不推送到 Git）
+data/history.json
+
 # 系統檔案
 .DS_Store
 Thumbs.db

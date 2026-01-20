@@ -1,6 +1,9 @@
 const { app, BrowserWindow } = require('electron');
 const path = require('path');
 
+// 啟用 remote 模組支援
+require('@electron/remote/main').initialize();
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1200,
@@ -8,9 +11,13 @@ function createWindow() {
     title: "生活開銷分攤計算器",
     webPreferences: {
       nodeIntegration: true,
-      contextIsolation: false
+      contextIsolation: false,
+      enableRemoteModule: true
     }
   });
+  
+  // 啟用此視窗的 remote 模組
+  require('@electron/remote/main').enable(win.webContents);
 
   // 隱藏上方功能選單，讓它看起來更像專業軟體
   win.setMenuBarVisibility(false);

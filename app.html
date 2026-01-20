@@ -32,6 +32,56 @@
 
     <script type="text/babel">
         const { useState, useMemo, useEffect } = React;
+        
+        // Electron 檔案系統支援
+        const fs = window.require ? window.require('fs') : null;
+        const path = window.require ? window.require('path') : null;
+        const { app } = window.require ? window.require('@electron/remote') : { app: null };
+        
+        // 資料檔案路徑 - 使用應用程式當前目錄
+        const getDataPath = () => {
+            if (fs && path) {
+                // 取得應用程式執行檔所在目錄
+                const appPath = app ? app.getAppPath() : process.cwd();
+                const dataDir = path.join(appPath, 'data');
+                // 確保 data 資料夾存在
+                if (!fs.existsSync(dataDir)) {
+                    fs.mkdirSync(dataDir, { recursive: true });
+                }
+                return path.join(dataDir, 'history.json');
+            }
+            return null;
+        };
+        
+        // 讀取歷史紀錄檔案
+        const loadHistoryFromFile = () => {
+            const dataPath = getDataPath();
+            if (dataPath && fs && fs.existsSync(dataPath)) {
+                try {
+                    const data = fs.readFileSync(dataPath, 'utf-8');
+                    return JSON.parse(data);
+                } catch (e) {
+                    console.error('讀取歷史紀錄失敗:', e);
+                    return [];
+                }
+            }
+            return [];
+        };
+        
+        // 儲存歷史紀錄到檔案
+        const saveHistoryToFile = (historyData) => {
+            const dataPath = getDataPath();
+            if (dataPath && fs) {
+                try {
+                    fs.writeFileSync(dataPath, JSON.stringify(historyData, null, 2), 'utf-8');
+                    return true;
+                } catch (e) {
+                    console.error('儲存歷史紀錄失敗:', e);
+                    return false;
+                }
+            }
+            return false;
+        };
 
         const SimpleIcon = ({ name, size = 20, className = "" }) => {
             const icons = {
@@ -81,8 +131,20 @@
             });
             
             const [history, setHistory] = useState(() => {
+                // 優先從檔案讀取，若檔案不存在則從 localStorage 遷移
+                const fileData = loadHistoryFromFile();
+                if (fileData.length > 0) {
+                    return fileData;
+                }
+                // 遷移舊資料
                 const saved = localStorage.getItem('history_v8');
-                return saved ? JSON.parse(saved) : [];
+                if (saved) {
+                    const oldData = JSON.parse(saved);
+                    saveHistoryToFile(oldData);
+                    localStorage.removeItem('history_v8');
+                    return oldData;
+                }
+                return [];
             });
 
             const [viewingRecord, setViewingRecord] = useState(null);
@@ -94,8 +156,12 @@
 
             useEffect(() => {
                 localStorage.setItem('expenses_v8', JSON.stringify(expenses));
-                localStorage.setItem('history_v8', JSON.stringify(history));
-            }, [expenses, history]);
+            }, [expenses]);
+            
+            useEffect(() => {
+                // 將歷史紀錄儲存到檔案
+                saveHistoryToFile(history);
+            }, [history]);
 
             const handleAddMember = () => {
                 if (newMemberName && !members.includes(newMemberName)) {

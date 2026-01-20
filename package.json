@@ -1,14 +1,18 @@
 {
   "name": "expense-tracker-tw",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "二哥的分攤計算器",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "build": "electron-packager . 分攤計算器 --platform=win32 --arch=x64 --overwrite --icon=icon.ico --ignore=\"(分攤計算器-win32-x64|.git|node_modules|dist)\"",
     "package-win": "electron-packager . 分攤計算器 --platform=win32 --arch=x64 --overwrite --ignore=\"(分攤計算器-win32-x64|.git|node_modules|dist)\""
   },
   "devDependencies": {
     "electron": "^25.0.0",
     "electron-packager": "^17.1.1"
+  },
+  "dependencies": {
+    "@electron/remote": "^2.1.3"
   }
 }
