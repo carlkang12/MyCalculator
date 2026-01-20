@@ -181,14 +181,18 @@
                 const stats = {};
                 members.forEach(m => stats[m] = { paid: 0, shouldPay: 0 });
                 
-                let totalPool = 0; // 總本期支出
+                let totalPool = 0; // 總本期公費支出
+                let publicFund = 0; // 公用基金（大家多付的部分）
 
                 expenseList.forEach(exp => {
                     const amt = parseFloat(exp.amount) || 0;
                     const splitWith = exp.splitWith || [];
                     if (amt <= 0) return;
                     
-                    totalPool += amt;
+                    // 只計算公費到總支出
+                    if (exp.type === 'public') {
+                        totalPool += amt;
+                    }
 
                     const payer = exp.payer;
                     if (stats[payer]) stats[payer].paid += amt;
@@ -202,14 +206,11 @@
                     }
                 });
 
-                // 計算需要退款給其他成員的總額 (不包含二哥)
-                let refundNeeded = 0;
+                // 計算公用基金（所有成員多付的總額）
                 members.forEach(m => {
-                    if (m !== '二哥') {
-                        const net = stats[m].shouldPay - stats[m].paid;
-                        if (net < 0) { // 如果該成員多付了 (應付 < 已付)
-                            refundNeeded += Math.abs(net);
-                        }
+                    const net = stats[m].shouldPay - stats[m].paid;
+                    if (net < 0) { // 如果該成員多付了
+                        publicFund += Math.abs(net);
                     }
                 });
 
@@ -218,7 +219,7 @@
                     totalPaid: stats['二哥'] ? stats['二哥'].paid : 0,
                     ergeShouldPay: stats['二哥'] ? stats['二哥'].shouldPay : 0,
                     finalBalance: stats['二哥'] ? (stats['二哥'].paid - stats['二哥'].shouldPay) : 0, 
-                    refundNeeded,
+                    publicFund,
                     details: stats 
                 };
             };
@@ -446,7 +447,7 @@
                                                 <h3 className="font-black text-lg">目前統計結算</h3>
                                             </div>
                                             <div className="text-right">
-                                                <p className="text-[10px] text-slate-400 font-bold uppercase">本期總支出</p>
+                                                <p className="text-[10px] text-slate-400 font-bold uppercase">本期公費總額</p>
                                                 <p className="text-white font-mono font-bold">${Math.round(summary.totalPool).toLocaleString()}</p>
                                             </div>
                                         </div>
@@ -466,25 +467,29 @@
                                             <div className="bg-gradient-to-br from-indigo-600 to-violet-700 p-6 rounded-3xl shadow-lg relative overflow-hidden">
                                                 <div className="relative z-10 space-y-4">
                                                     <div>
-                                                        <p className="text-xs font-bold text-white/80 uppercase mb-1">二哥結算淨額</p>
+                                                        <p className="text-xs font-bold text-white/80 uppercase mb-1">二哥多付金額</p>
                                                         <p className="text-5xl font-black font-mono leading-none tracking-tight">
-                                                            {summary.finalBalance > 0 ? '+' : ''}{Math.round(summary.finalBalance).toLocaleString()}
+                                                            ${Math.round(Math.abs(summary.finalBalance)).toLocaleString()}
                                                         </p>
                                                         <p className="text-[10px] text-indigo-200 font-medium mt-1">
-                                                            {summary.finalBalance > 0 ? '其他成員應付給二哥的總額' : (summary.finalBalance < 0 ? '二哥應拿出來分給成員的錢' : '目前帳務平衡')}
+                                                            {
+                                                                summary.finalBalance > 0 ? '其他成員應付給二哥的總額' : 
+                                                                summary.finalBalance < 0 ? '二哥應拿出來分給成員的錢' : 
+                                                                '目前帳務平衡'
+                                                            }
                                                         </p>
                                                     </div>
 
-                                                    {summary.refundNeeded > 0 && (
-                                                        <div className="bg-white/10 p-3 rounded-xl border border-white/20 backdrop-blur-sm animate-pulse">
-                                                            <div className="flex items-center gap-2 text-amber-300 mb-1">
-                                                                <SimpleIcon name="info" size={14} />
-                                                                <p className="text-xs font-black uppercase">需退還成員墊付款</p>
+                                                    {summary.publicFund > 0 && (
+                                                        <div className="bg-white/10 p-3 rounded-xl border border-white/20 backdrop-blur-sm">
+                                                            <div className="flex items-center gap-2 text-emerald-300 mb-1">
+                                                                <SimpleIcon name="wallet" size={14} />
+                                                                <p className="text-xs font-black uppercase">公用基金餘額</p>
                                                             </div>
                                                             <p className="text-2xl font-black font-mono text-white">
-                                                                ${Math.round(summary.refundNeeded).toLocaleString()}
+                                                                ${Math.round(summary.publicFund).toLocaleString()}
                                                             </p>
-                                                            <p className="text-[10px] text-white/60 font-medium mt-0.5">有人多付了錢，二哥需負責轉交</p>
+                                                            <p className="text-[10px] text-white/60 font-medium mt-0.5">大家多付的部分，可作為下期抵扣</p>
                                                         </div>
                                                     )}
                                                 </div>
@@ -493,31 +498,57 @@
 
                                             <div className="space-y-3 pt-6 border-t border-white/10">
                                                 <div className="flex justify-between items-center px-1">
-                                                    <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">成員應付二哥金額</p>
+                                                    <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">各成員結算明細</p>
                                                 </div>
                                                 {members.map(m => {
                                                     const s = summary.details[m];
                                                     const net = s.shouldPay - s.paid;
                                                     
-                                                    let amountDisplay;
-                                                    if (net > 0) {
-                                                        amountDisplay = <span className="text-rose-400">需付 ${Math.round(net).toLocaleString()}</span>;
+                                                    let amountDisplay, statusText;
+                                                    if (m === '二哥') {
+                                                        // 二哥特殊顯示：直接顯示多付金額
+                                                        if (net < 0) {
+                                                            amountDisplay = <span className="text-indigo-400">${Math.round(Math.abs(net)).toLocaleString()}</span>;
+                                                            statusText = <span className="text-indigo-300 text-[10px]">多付金額</span>;
+                                                        } else if (net > 0) {
+                                                            amountDisplay = <span className="text-rose-400">${Math.round(net).toLocaleString()}</span>;
+                                                            statusText = <span className="text-rose-300 text-[10px]">需補款項</span>;
+                                                        } else {
+                                                            amountDisplay = <span className="text-emerald-400">已結清</span>;
+                                                            statusText = <span className="text-emerald-300 text-[10px]">${Math.round(s.paid).toLocaleString()}</span>;
+                                                        }
+                                                    } else if (net > 0) {
+                                                        // 該成員應付但還沒付夠 → 需付給二哥
+                                                        amountDisplay = <span className="text-rose-400">${Math.round(net).toLocaleString()}</span>;
+                                                        statusText = <span className="text-rose-300 text-[10px]">→ 應付二哥</span>;
                                                     } else if (net < 0) {
-                                                        amountDisplay = <span className="text-orange-400">多付 ${Math.round(Math.abs(net)).toLocaleString()}</span>;
+                                                        // 該成員多付了 → 二哥應退款給他
+                                                        amountDisplay = <span className="text-amber-400">${Math.round(Math.abs(net)).toLocaleString()}</span>;
+                                                        statusText = <span className="text-amber-300 text-[10px]">← 二哥應退</span>;
                                                     } else {
                                                         if (s.paid > 0) {
-                                                            amountDisplay = <span className="text-emerald-400">已付 ${Math.round(s.paid).toLocaleString()}</span>;
+                                                            amountDisplay = <span className="text-emerald-400">已結清</span>;
+                                                            statusText = <span className="text-emerald-300 text-[10px]">${Math.round(s.paid).toLocaleString()}</span>;
                                                         } else {
-                                                            amountDisplay = <span className="text-white/20">0</span>;
+                                                            amountDisplay = <span className="text-white/20">無支出</span>;
+                                                            statusText = <span className="text-white/20 text-[10px]">-</span>;
                                                         }
                                                     }
 
                                                     return (
                                                         <div key={m} className="flex justify-between items-center glass-card p-3 rounded-2xl">
-                                                            <p className="text-sm font-bold text-white">{m}</p>
-                                                            <p className="text-sm font-black font-mono">
-                                                                {amountDisplay}
-                                                            </p>
+                                                            <div>
+                                                                <p className="text-sm font-bold text-white">{m}</p>
+                                                                <p className="text-[9px] text-white/60 font-bold">應付 ${Math.round(s.shouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}</p>
+                                                            </div>
+                                                            <div className="text-right">
+                                                                <p className="text-sm font-black font-mono">
+                                                                    {amountDisplay}
+                                                                </p>
+                                                                <p className="font-bold">
+                                                                    {statusText}
+                                                                </p>
+                                                            </div>
                                                         </div>
                                                     );
                                                 })}
@@ -528,7 +559,7 @@
                                                 disabled={expenses.length === 0}
                                                 className={`w-full py-4 rounded-2xl font-black text-sm transition-all shadow-xl ${confirmStep === 1 ? 'bg-rose-500 animate-pulse' : 'bg-white text-slate-900 hover:bg-indigo-50'} disabled:opacity-20`}
                                             >
-                                                {confirmStep === 1 ? '確認結算並封存？' : '立即進行本週結算'}
+                                                {confirmStep === 1 ? '確認結算並封存？' : '立即進行本月結算'}
                                             </button>
                                         </div>
                                     </div>
@@ -624,11 +655,25 @@
                                                         <div key={m} className="flex justify-between items-center border-b border-white/5 pb-4 last:border-0 last:pb-0">
                                                             <div>
                                                                 <p className="text-white font-bold text-sm">{m}</p>
-                                                                <p className="text-[10px] text-white/30 font-bold uppercase">總分攤 ${Math.round(s.shouldPay).toLocaleString()} {s.paid > 0 && `| 已墊 $${Math.round(s.paid).toLocaleString()}`}</p>
+                                                                <p className="text-[10px] text-white/30 font-bold uppercase">應付 ${Math.round(s.shouldPay).toLocaleString()} | 已付 ${Math.round(s.paid).toLocaleString()}</p>
                                                             </div>
                                                             <div className="text-right">
-                                                                <p className={`text-sm font-black font-mono ${net > 0 ? 'text-emerald-400' : (net < 0 ? 'text-rose-400' : 'text-white/20')}`}>
-                                                                    {net > 0 ? `應付二哥 $${Math.round(net).toLocaleString()}` : (net < 0 ? `二哥退款 $${Math.round(Math.abs(net)).toLocaleString()}` : '已結清')}
+                                                                <p className={`text-sm font-black font-mono ${
+                                                                    m === '二哥' 
+                                                                        ? (net < 0 ? 'text-indigo-400' : net > 0 ? 'text-rose-400' : 'text-emerald-400')
+                                                                        : (net > 0 ? 'text-rose-400' : (net < 0 ? 'text-amber-400' : 'text-emerald-400'))
+                                                                }`}>
+                                                                    {net !== 0 ? `$${Math.round(Math.abs(net)).toLocaleString()}` : '已結清'}
+                                                                </p>
+                                                                <p className={`text-[10px] font-bold ${
+                                                                    m === '二哥' 
+                                                                        ? (net < 0 ? 'text-indigo-300' : net > 0 ? 'text-rose-300' : 'text-emerald-300')
+                                                                        : (net > 0 ? 'text-rose-300' : (net < 0 ? 'text-amber-300' : 'text-emerald-300'))
+                                                                }`}>
+                                                                    {m === '二哥' 
+                                                                        ? (net < 0 ? '多付金額' : (net > 0 ? '需補款項' : '無欠款'))
+                                                                        : (net > 0 ? '→ 應付二哥' : (net < 0 ? '← 二哥應退' : '無欠款'))
+                                                                    }
                                                                 </p>
                                                             </div>
                                                         </div>
@@ -640,10 +685,10 @@
                                             <div className="bg-indigo-600 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
                                                 <div className="relative z-10 space-y-4">
                                                     <div>
-                                                        <p className="text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">二哥結算淨額</p>
+                                                        <p className="text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">二哥多付金額</p>
                                                         <div className="flex justify-between items-end">
                                                             <p className="text-3xl font-black font-mono">
-                                                                {viewingRecord.summary.finalBalance > 0 ? '+' : ''}{Math.round(viewingRecord.summary.finalBalance).toLocaleString()}
+                                                                ${Math.round(Math.abs(viewingRecord.summary.finalBalance)).toLocaleString()}
                                                             </p>
                                                             <SimpleIcon name="check" size={30} className="text-white/20 mb-1" />
                                                         </div>
@@ -652,37 +697,33 @@
                                                         </p>
                                                     </div>
 
-                                                    {(viewingRecord.summary.refundNeeded || (() => {
-                                                        // Fallback for old records: calculate refundNeeded on the fly
-                                                        let refund = 0;
+                                                    {(viewingRecord.summary.publicFund || viewingRecord.summary.refundNeeded || (() => {
+                                                        // Fallback for old records: calculate publicFund on the fly
+                                                        let fund = 0;
                                                         Object.keys(viewingRecord.summary.details).forEach(m => {
-                                                            if (m !== '二哥') {
-                                                                const s = viewingRecord.summary.details[m];
-                                                                const net = s.shouldPay - s.paid;
-                                                                if (net < 0) refund += Math.abs(net);
-                                                            }
+                                                            const s = viewingRecord.summary.details[m];
+                                                            const net = s.shouldPay - s.paid;
+                                                            if (net < 0) fund += Math.abs(net);
                                                         });
-                                                        return refund;
+                                                        return fund;
                                                     })()) > 0 && (
-                                                        <div className="bg-white/10 p-3 rounded-xl border border-white/20 backdrop-blur-sm animate-pulse">
-                                                            <div className="flex items-center gap-2 text-amber-300 mb-1">
-                                                                <SimpleIcon name="info" size={14} />
-                                                                <p className="text-xs font-black uppercase">需退還成員墊付款</p>
+                                                        <div className="bg-white/10 p-3 rounded-xl border border-white/20 backdrop-blur-sm">
+                                                            <div className="flex items-center gap-2 text-emerald-300 mb-1">
+                                                                <SimpleIcon name="wallet" size={14} />
+                                                                <p className="text-xs font-black uppercase">公用基金餘額</p>
                                                             </div>
                                                             <p className="text-2xl font-black font-mono text-white">
-                                                                ${Math.round(viewingRecord.summary.refundNeeded || (() => {
-                                                                    let refund = 0;
+                                                                ${Math.round(viewingRecord.summary.publicFund || viewingRecord.summary.refundNeeded || (() => {
+                                                                    let fund = 0;
                                                                     Object.keys(viewingRecord.summary.details).forEach(m => {
-                                                                        if (m !== '二哥') {
-                                                                            const s = viewingRecord.summary.details[m];
-                                                                            const net = s.shouldPay - s.paid;
-                                                                            if (net < 0) refund += Math.abs(net);
-                                                                        }
+                                                                        const s = viewingRecord.summary.details[m];
+                                                                        const net = s.shouldPay - s.paid;
+                                                                        if (net < 0) fund += Math.abs(net);
                                                                     });
-                                                                    return refund;
+                                                                    return fund;
                                                                 })()).toLocaleString()}
                                                             </p>
-                                                            <p className="text-[10px] text-white/60 font-medium mt-0.5">有人多付了錢，二哥需負責轉交</p>
+                                                            <p className="text-[10px] text-white/60 font-medium mt-0.5">大家多付的部分，可作為下期抵扣</p>
                                                         </div>
                                                     )}
                                                 </div>
