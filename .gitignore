@@ -7,7 +7,7 @@ node_modules/
 dist/
 
 # 歷史紀錄資料（個人資料，不推送到 Git）
-data/history.json
+# data/history.json  # 註解掉，讓歷史紀錄可以同步
 
 # 系統檔案
 .DS_Store

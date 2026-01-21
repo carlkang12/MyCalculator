@@ -37,11 +37,39 @@
         const fs = window.require ? window.require('fs') : null;
         const path = window.require ? window.require('path') : null;
         
-        // 資料檔案路徑 - 使用應用程式當前目錄
+        // 資料檔案路徑 - 使用專案目錄以便同步
         const getDataPath = () => {
             if (fs && path) {
-                // 使用 process.cwd() 取得當前工作目錄
-                const appPath = process.cwd();
+                let appPath;
+                try {
+                    // 優先使用專案根目錄（包含 package.json 的目錄）
+                    if (process.resourcesPath) {
+                        // 打包後的應用程式，往上找到包含 data 資料夾的目錄
+                        const resourcesDir = path.dirname(process.resourcesPath);
+                        const projectRoot = path.join(resourcesDir, '..', '..');
+                        if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
+                            appPath = projectRoot;
+                        } else {
+                            appPath = resourcesDir;
+                        }
+                    } else {
+                        // 開發環境 - 尋找包含 package.json 的目錄
+                        let currentDir = process.cwd();
+                        while (currentDir !== path.dirname(currentDir)) {
+                            if (fs.existsSync(path.join(currentDir, 'package.json'))) {
+                                appPath = currentDir;
+                                break;
+                            }
+                            currentDir = path.dirname(currentDir);
+                        }
+                        if (!appPath) {
+                            appPath = process.cwd();
+                        }
+                    }
+                } catch (e) {
+                    appPath = process.cwd();
+                }
+                
                 const dataDir = path.join(appPath, 'data');
                 // 確保 data 資料夾存在
                 if (!fs.existsSync(dataDir)) {
@@ -57,14 +85,17 @@
             const dataPath = getDataPath();
             if (dataPath && fs && fs.existsSync(dataPath)) {
                 try {
+                    console.log('載入歷史紀錄從:', dataPath);
                     const data = fs.readFileSync(dataPath, 'utf-8');
                     return JSON.parse(data);
                 } catch (e) {
                     console.error('讀取歷史紀錄失敗:', e);
                     return [];
                 }
+            } else {
+                console.log('歷史紀錄檔案不存在:', dataPath);
+                return [];
             }
-            return [];
         };
         
         // 儲存歷史紀錄到檔案
@@ -72,13 +103,16 @@
             const dataPath = getDataPath();
             if (dataPath && fs) {
                 try {
+                    console.log('儲存歷史紀錄到:', dataPath);
                     fs.writeFileSync(dataPath, JSON.stringify(historyData, null, 2), 'utf-8');
+                    console.log('歷史紀錄儲存成功');
                     return true;
                 } catch (e) {
                     console.error('儲存歷史紀錄失敗:', e);
                     return false;
                 }
             }
+            console.log('無法儲存歷史紀錄，dataPath 或 fs 不可用');
             return false;
         };
 
