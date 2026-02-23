@@ -181,6 +181,8 @@
             });
 
             const [viewingRecord, setViewingRecord] = useState(null);
+            const [editingRecord, setEditingRecord] = useState(null);
+            const [isEditMode, setIsEditMode] = useState(false);
             const [confirmStep, setConfirmStep] = useState(0);
 
             useEffect(() => {
@@ -301,6 +303,88 @@
                 setExpenses([]);
                 setConfirmStep(0);
                 setActiveTab('history');
+            };
+
+            const handleEditRecord = (record) => {
+                setEditingRecord(JSON.parse(JSON.stringify(record)));
+                setIsEditMode(true);
+            };
+
+            const handleSaveEdit = () => {
+                const updatedSummary = calculateResults(editingRecord.rawExpenses);
+                const updatedRecord = {
+                    ...editingRecord,
+                    summary: updatedSummary
+                };
+                setHistory(history.map(h => h.id === updatedRecord.id ? updatedRecord : h));
+                setViewingRecord(updatedRecord);
+                setEditingRecord(null);
+                setIsEditMode(false);
+            };
+
+            const handleCancelEdit = () => {
+                setEditingRecord(null);
+                setIsEditMode(false);
+            };
+
+            const updateEditingExpense = (expId, field, value) => {
+                setEditingRecord({
+                    ...editingRecord,
+                    rawExpenses: editingRecord.rawExpenses.map(exp => 
+                        exp.id === expId ? { ...exp, [field]: value } : exp
+                    )
+                });
+            };
+
+            const toggleEditingSplitWith = (expId, member) => {
+                setEditingRecord({
+                    ...editingRecord,
+                    rawExpenses: editingRecord.rawExpenses.map(exp => {
+                        if (exp.id === expId) {
+                            const splitWith = exp.splitWith.includes(member)
+                                ? exp.splitWith.filter(m => m !== member)
+                                : [...exp.splitWith, member];
+                            return { ...exp, splitWith };
+                        }
+                        return exp;
+                    })
+                });
+            };
+
+            const toggleEditingSelectAll = (expId) => {
+                setEditingRecord({
+                    ...editingRecord,
+                    rawExpenses: editingRecord.rawExpenses.map(exp => {
+                        if (exp.id === expId) {
+                            const isAll = exp.splitWith.length === members.length;
+                            return { ...exp, splitWith: isAll ? [] : [...members] };
+                        }
+                        return exp;
+                    })
+                });
+            };
+
+            const deleteEditingExpense = (expId) => {
+                setEditingRecord({
+                    ...editingRecord,
+                    rawExpenses: editingRecord.rawExpenses.filter(exp => exp.id !== expId)
+                });
+            };
+
+            const addEditingExpense = (type) => {
+                const defaultPayer = members.includes('二哥') ? '二哥' : members[0];
+                const newExp = {
+                    id: Date.now(),
+                    title: type === 'public' ? '水電/瓦斯費(雙月)' : '個人當月支付',
+                    amount: '',
+                    type: type,
+                    payer: type === 'public' ? defaultPayer : (members.length > 1 ? members[1] : members[0]),
+                    splitWith: type === 'public' ? [...members] : []
+                };
+                setEditingRecord({
+                    ...editingRecord,
+                    rawExpenses: [newExp, ...editingRecord.rawExpenses]
+                });
             };
 
             const exportToExcel = (record) => {
@@ -642,10 +726,15 @@
                                         </div>
                                     </div>
                                     <div className="flex gap-2">
+                                        {!isEditMode && (
+                                            <button onClick={() => handleEditRecord(viewingRecord)} className="bg-indigo-500 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-indigo-600 shadow-sm transition-all">
+                                                <SimpleIcon name="checkSquare" size={16} /> 編輯
+                                            </button>
+                                        )}
                                         <button onClick={() => exportToExcel(viewingRecord)} className="bg-emerald-500 text-white px-4 py-2 rounded-xl text-sm font-bold flex items-center gap-2 hover:bg-emerald-600 shadow-sm transition-all">
                                             <SimpleIcon name="chart" size={16} /> 匯出 Excel
                                         </button>
-                                        <button onClick={() => setViewingRecord(null)} className="bg-white p-2 rounded-xl text-slate-300 hover:text-slate-600 border border-slate-100 shadow-sm"><SimpleIcon name="x" size={20} /></button>
+                                        <button onClick={() => { setViewingRecord(null); setIsEditMode(false); setEditingRecord(null); }} className="bg-white p-2 rounded-xl text-slate-300 hover:text-slate-600 border border-slate-100 shadow-sm"><SimpleIcon name="x" size={20} /></button>
                                     </div>
                                 </div>
 
@@ -653,23 +742,94 @@
                                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                                         {/* 支出細項表格 */}
                                         <div className="space-y-6">
-                                            <div className="flex items-center gap-2">
-                                                <SimpleIcon name="wallet" size={18} className="text-indigo-500" />
-                                                <h4 className="font-black text-slate-800 text-sm uppercase tracking-widest">支出清單 ({viewingRecord.rawExpenses.length} 筆)</h4>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <SimpleIcon name="wallet" size={18} className="text-indigo-500" />
+                                                    <h4 className="font-black text-slate-800 text-sm uppercase tracking-widest">支出清單 ({(isEditMode ? editingRecord : viewingRecord).rawExpenses.length} 筆) {isEditMode && <span className="text-rose-500 ml-2">編輯模式</span>}</h4>
+                                                </div>
+                                                {isEditMode && (
+                                                    <div className="flex gap-1">
+                                                        <button onClick={() => addEditingExpense('personal')} className="bg-white border border-amber-200 px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 hover:bg-amber-50 text-amber-600 shadow-sm">
+                                                            <SimpleIcon name="plus" size={12} /> 代墊
+                                                        </button>
+                                                        <button onClick={() => addEditingExpense('public')} className="bg-indigo-600 text-white px-2 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1 hover:bg-indigo-700 shadow-sm">
+                                                            <SimpleIcon name="plus" size={12} /> 公費
+                                                        </button>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="space-y-3">
-                                                {viewingRecord.rawExpenses.map(ex => (
-                                                    <div key={ex.id} className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100 flex justify-between items-center">
-                                                        <div className="space-y-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${ex.type === 'public' ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}`}>
-                                                                    {ex.type === 'public' ? '公費' : '代墊'}
-                                                                </span>
-                                                                <p className="font-bold text-slate-800 text-sm">{ex.title || '無名稱項目'}</p>
+                                                {(isEditMode ? editingRecord : viewingRecord).rawExpenses.map(ex => (
+                                                    <div key={ex.id} className={`p-4 rounded-2xl border ${isEditMode ? 'bg-white border-indigo-200' : 'bg-slate-50/50 border-slate-100'}`}>
+                                                        {isEditMode ? (
+                                                            <div className="space-y-3">
+                                                                <div className="flex justify-between items-start gap-2">
+                                                                    <div className="flex-1 flex items-center gap-2">
+                                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${ex.type === 'public' ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}`}>
+                                                                            {ex.type === 'public' ? '公費' : '代墊'}
+                                                                        </span>
+                                                                        <input 
+                                                                            className="flex-1 font-bold text-slate-800 text-sm outline-none border-b border-slate-200 focus:border-indigo-400 pb-1"
+                                                                            value={ex.title}
+                                                                            onChange={e => updateEditingExpense(ex.id, 'title', e.target.value)}
+                                                                        />
+                                                                    </div>
+                                                                    <div className="flex items-center gap-2">
+                                                                        <input 
+                                                                            type="number"
+                                                                            className="w-24 font-black font-mono text-slate-700 text-right outline-none border-b border-slate-200 focus:border-indigo-400 pb-1"
+                                                                            value={ex.amount}
+                                                                            onChange={e => updateEditingExpense(ex.id, 'amount', e.target.value)}
+                                                                        />
+                                                                        <button onClick={() => deleteEditingExpense(ex.id)} className="text-rose-400 hover:text-rose-600">
+                                                                            <SimpleIcon name="trash" size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                                <div className="flex gap-4 pt-2 border-t">
+                                                                    <div className="flex-1">
+                                                                        <div className="flex items-center justify-between mb-1">
+                                                                            <span className="text-[9px] font-bold text-slate-400 uppercase">分攤成員</span>
+                                                                            <button onClick={() => toggleEditingSelectAll(ex.id)} className="text-[9px] text-indigo-500 font-bold hover:underline">
+                                                                                {ex.splitWith.length === members.length ? '取消全選' : '全選'}
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="flex flex-wrap gap-1">
+                                                                            {members.map(m => (
+                                                                                <button 
+                                                                                    key={m}
+                                                                                    onClick={() => toggleEditingSplitWith(ex.id, m)}
+                                                                                    className={`text-[10px] px-2 py-1 rounded-lg font-bold transition-all ${ex.splitWith.includes(m) ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-400'}`}
+                                                                                >{m}</button>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                    <div>
+                                                                        <span className="text-[9px] font-bold text-slate-400 uppercase block mb-1">支付者</span>
+                                                                        <select 
+                                                                            className="text-[11px] py-1 px-2 font-bold rounded-lg border outline-none cursor-pointer bg-slate-50"
+                                                                            value={ex.payer}
+                                                                            onChange={e => updateEditingExpense(ex.id, 'payer', e.target.value)}
+                                                                        >
+                                                                            {members.map(m => <option key={m} value={m}>{m}</option>)}
+                                                                        </select>
+                                                                    </div>
+                                                                </div>
                                                             </div>
-                                                            <p className="text-[10px] text-slate-400 font-medium">支付者：{ex.type === 'public' ? '二哥' : ex.payer} | 分攤：{ex.splitWith.join(', ')}</p>
-                                                        </div>
-                                                        <p className="font-black font-mono text-slate-700">${Math.round(ex.amount).toLocaleString()}</p>
+                                                        ) : (
+                                                            <div className="flex justify-between items-center">
+                                                                <div className="space-y-1">
+                                                                    <div className="flex items-center gap-2">
+                                                                        <span className={`text-[9px] font-black px-1.5 py-0.5 rounded ${ex.type === 'public' ? 'bg-indigo-100 text-indigo-600' : 'bg-amber-100 text-amber-600'}`}>
+                                                                            {ex.type === 'public' ? '公費' : '代墊'}
+                                                                        </span>
+                                                                        <p className="font-bold text-slate-800 text-sm">{ex.title || '無名稱項目'}</p>
+                                                                    </div>
+                                                                    <p className="text-[10px] text-slate-400 font-medium">支付者：{ex.type === 'public' ? '二哥' : ex.payer} | 分攤：{ex.splitWith.join(', ')}</p>
+                                                                </div>
+                                                                <p className="font-black font-mono text-slate-700">${Math.round(ex.amount).toLocaleString()}</p>
+                                                            </div>
+                                                        )}
                                                     </div>
                                                 ))}
                                             </div>
@@ -683,7 +843,8 @@
                                             </div>
                                             <div className="bg-slate-900 rounded-[2rem] p-6 space-y-4">
                                                 {members.map(m => {
-                                                    const s = viewingRecord.summary.details[m];
+                                                    const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
+                                                    const s = currentRecord.summary.details[m];
                                                     const net = s.shouldPay - s.paid;
                                                     return (
                                                         <div key={m} className="flex justify-between items-center border-b border-white/5 pb-4 last:border-0 last:pb-0">
@@ -722,54 +883,66 @@
                                                         <p className="text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">二哥多付金額</p>
                                                         <div className="flex justify-between items-end">
                                                             <p className="text-3xl font-black font-mono">
-                                                                ${Math.round(Math.abs(viewingRecord.summary.finalBalance)).toLocaleString()}
+                                                                ${(() => {
+                                                                    const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
+                                                                    return Math.round(Math.abs(currentRecord.summary.finalBalance)).toLocaleString();
+                                                                })()}
                                                             </p>
                                                             <SimpleIcon name="check" size={30} className="text-white/20 mb-1" />
                                                         </div>
                                                         <p className="text-[10px] text-indigo-200 font-medium mt-1">
-                                                            {viewingRecord.summary.finalBalance > 0 ? '其他成員應付給二哥的總額' : (viewingRecord.summary.finalBalance < 0 ? '二哥應拿出來分給成員的錢' : '目前帳務平衡')}
+                                                            {(() => {
+                                                                const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
+                                                                return currentRecord.summary.finalBalance > 0 ? '其他成員應付給二哥的總額' : (currentRecord.summary.finalBalance < 0 ? '二哥應拿出來分給成員的錢' : '目前帳務平衡');
+                                                            })()}
                                                         </p>
                                                     </div>
 
-                                                    {(viewingRecord.summary.publicFund || viewingRecord.summary.refundNeeded || (() => {
-                                                        // Fallback for old records: calculate publicFund on the fly
-                                                        let fund = 0;
-                                                        Object.keys(viewingRecord.summary.details).forEach(m => {
-                                                            const s = viewingRecord.summary.details[m];
-                                                            const net = s.shouldPay - s.paid;
-                                                            if (net < 0) fund += Math.abs(net);
-                                                        });
-                                                        return fund;
-                                                    })()) > 0 && (
-                                                        <div className="bg-white/10 p-3 rounded-xl border border-white/20 backdrop-blur-sm">
-                                                            <div className="flex items-center gap-2 text-emerald-300 mb-1">
-                                                                <SimpleIcon name="wallet" size={14} />
-                                                                <p className="text-xs font-black uppercase">公用基金餘額</p>
+                                                    {(() => {
+                                                        const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
+                                                        const publicFund = currentRecord.summary.publicFund || currentRecord.summary.refundNeeded || (() => {
+                                                            let fund = 0;
+                                                            Object.keys(currentRecord.summary.details).forEach(m => {
+                                                                const s = currentRecord.summary.details[m];
+                                                                const net = s.shouldPay - s.paid;
+                                                                if (net < 0) fund += Math.abs(net);
+                                                            });
+                                                            return fund;
+                                                        })();
+                                                        return publicFund > 0 ? (
+                                                            <div className="bg-white/10 p-3 rounded-xl border border-white/20 backdrop-blur-sm">
+                                                                <div className="flex items-center gap-2 text-emerald-300 mb-1">
+                                                                    <SimpleIcon name="wallet" size={14} />
+                                                                    <p className="text-xs font-black uppercase">公用基金餘額</p>
+                                                                </div>
+                                                                <p className="text-2xl font-black font-mono text-white">
+                                                                    ${Math.round(publicFund).toLocaleString()}
+                                                                </p>
+                                                                <p className="text-[10px] text-white/60 font-medium mt-0.5">大家多付的部分，可作為下期抵扣</p>
                                                             </div>
-                                                            <p className="text-2xl font-black font-mono text-white">
-                                                                ${Math.round(viewingRecord.summary.publicFund || viewingRecord.summary.refundNeeded || (() => {
-                                                                    let fund = 0;
-                                                                    Object.keys(viewingRecord.summary.details).forEach(m => {
-                                                                        const s = viewingRecord.summary.details[m];
-                                                                        const net = s.shouldPay - s.paid;
-                                                                        if (net < 0) fund += Math.abs(net);
-                                                                    });
-                                                                    return fund;
-                                                                })()).toLocaleString()}
-                                                            </p>
-                                                            <p className="text-[10px] text-white/60 font-medium mt-0.5">大家多付的部分，可作為下期抵扣</p>
-                                                        </div>
-                                                    )}
+                                                        ) : null;
+                                                    })()}
                                                 </div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
                                 
-                                <div className="p-6 bg-slate-50 border-t flex justify-center">
-                                    <button onClick={() => setViewingRecord(null)} className="px-8 py-3 bg-white border border-slate-200 rounded-2xl text-slate-600 font-bold text-sm hover:bg-slate-100 transition-colors shadow-sm">
-                                        關閉報表
-                                    </button>
+                                <div className="p-6 bg-slate-50 border-t flex justify-center gap-3">
+                                    {isEditMode ? (
+                                        <>
+                                            <button onClick={handleCancelEdit} className="px-8 py-3 bg-white border border-slate-200 rounded-2xl text-slate-600 font-bold text-sm hover:bg-slate-100 transition-colors shadow-sm">
+                                                取消編輯
+                                            </button>
+                                            <button onClick={handleSaveEdit} className="px-8 py-3 bg-indigo-600 text-white rounded-2xl font-bold text-sm hover:bg-indigo-700 transition-colors shadow-md">
+                                                保存修改
+                                            </button>
+                                        </>
+                                    ) : (
+                                        <button onClick={() => { setViewingRecord(null); setIsEditMode(false); setEditingRecord(null); }} className="px-8 py-3 bg-white border border-slate-200 rounded-2xl text-slate-600 font-bold text-sm hover:bg-slate-100 transition-colors shadow-sm">
+                                            關閉報表
+                                        </button>
+                                    )}
                                 </div>
                             </div>
                         </div>
