@@ -37,45 +37,51 @@
         const fs = window.require ? window.require('fs') : null;
         const path = window.require ? window.require('path') : null;
         
-        // 資料檔案路徑 - 使用專案目錄以便同步
+        // 資料檔案路徑 - 統一使用專案根目錄，讓 git 可以追蹤
         const getDataPath = () => {
             if (fs && path) {
-                let appPath;
+                let projectRoot;
                 try {
-                    // 優先使用專案根目錄（包含 package.json 的目錄）
                     if (process.resourcesPath) {
-                        // 打包後的應用程式，往上找到包含 data 資料夾的目錄
-                        const resourcesDir = path.dirname(process.resourcesPath);
-                        const projectRoot = path.join(resourcesDir, '..', '..');
-                        if (fs.existsSync(path.join(projectRoot, 'package.json'))) {
-                            appPath = projectRoot;
-                        } else {
-                            appPath = resourcesDir;
+                        // 打包後的 exe：從 resources 目錄往上找專案根目錄
+                        // 路徑結構：MyCalculator/分攤計算器-win32-x64/resources/app/
+                        // 我們要往上兩層到 分攤計算器-win32-x64，再往上一層到 MyCalculator
+                        const resourcesDir = path.dirname(process.resourcesPath); // 分攤計算器-win32-x64
+                        projectRoot = path.join(resourcesDir, '..'); // MyCalculator (專案根目錄)
+                        
+                        // 驗證是否找到正確的專案根目錄
+                        if (!fs.existsSync(path.join(projectRoot, 'package.json'))) {
+                            // 如果沒找到，嘗試其他路徑
+                            projectRoot = resourcesDir;
                         }
                     } else {
-                        // 開發環境 - 尋找包含 package.json 的目錄
+                        // 開發環境：尋找包含 package.json 的目錄
                         let currentDir = process.cwd();
                         while (currentDir !== path.dirname(currentDir)) {
                             if (fs.existsSync(path.join(currentDir, 'package.json'))) {
-                                appPath = currentDir;
+                                projectRoot = currentDir;
                                 break;
                             }
                             currentDir = path.dirname(currentDir);
                         }
-                        if (!appPath) {
-                            appPath = process.cwd();
+                        if (!projectRoot) {
+                            projectRoot = process.cwd();
                         }
                     }
                 } catch (e) {
-                    appPath = process.cwd();
+                    console.error('無法取得專案路徑:', e);
+                    projectRoot = process.cwd();
                 }
                 
-                const dataDir = path.join(appPath, 'data');
+                const dataDir = path.join(projectRoot, 'data');
                 // 確保 data 資料夾存在
                 if (!fs.existsSync(dataDir)) {
                     fs.mkdirSync(dataDir, { recursive: true });
                 }
-                return path.join(dataDir, 'history.json');
+                
+                const historyPath = path.join(dataDir, 'history.json');
+                console.log('歷史記錄儲存位置:', historyPath);
+                return historyPath;
             }
             return null;
         };
