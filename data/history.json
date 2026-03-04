@@ -4,31 +4,63 @@
     "date": "2026/2/9 上午8:42:50",
     "month": "2026年2月",
     "summary": {
-      "totalPool": 24853,
+      "totalPool": 29353,
       "totalPaid": 16853,
-      "ergeShouldPay": 7921.583333333334,
-      "finalBalance": 8931.416666666666,
-      "publicFund": 17921.583333333332,
+      "ergeShouldPay": 11621.583333333334,
+      "finalBalance": 5231.416666666666,
+      "publicFund": 15000.249999999998,
       "details": {
         "二哥": {
           "paid": 16853,
-          "shouldPay": 7921.583333333334
+          "shouldPay": 11621.583333333334
         },
         "大哥": {
-          "paid": 13000,
-          "shouldPay": 7921.583333333334
+          "paid": 17500,
+          "shouldPay": 11621.583333333334
         },
         "三弟": {
-          "paid": 5000,
-          "shouldPay": 7921.583333333334
+          "paid": 15512,
+          "shouldPay": 11621.583333333334
         },
         "倩瑜": {
-          "paid": 5000,
+          "paid": 1088,
           "shouldPay": 1088.25
         }
       }
     },
     "rawExpenses": [
+      {
+        "id": 1772642416132,
+        "title": "個人給爸爸錢",
+        "amount": "6600",
+        "type": "personal",
+        "payer": "三弟",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1772642268458,
+        "title": "扣除倩瑜",
+        "amount": "3912",
+        "type": "personal",
+        "payer": "三弟",
+        "splitWith": []
+      },
+      {
+        "id": 1772642177629,
+        "title": "即享券2千",
+        "amount": "2000",
+        "type": "public",
+        "payer": "大哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
       {
         "id": 1770597717411,
         "title": "食材費",
@@ -43,8 +75,8 @@
       },
       {
         "id": 1770597690360,
-        "title": "年貨-糖果",
-        "amount": "3000",
+        "title": "年貨-糖果+飲料",
+        "amount": "5500",
         "type": "public",
         "payer": "大哥",
         "splitWith": [
@@ -114,7 +146,7 @@
       {
         "id": 1767859241902,
         "title": "個人當月支付",
-        "amount": "5000",
+        "amount": "1088",
         "type": "personal",
         "payer": "倩瑜",
         "splitWith": []

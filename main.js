@@ -17,6 +17,9 @@ function createWindow() {
 
   // 載入應用程式主網頁（請確保您的 HTML 檔名為 app.html）
   win.loadFile('app.html');
+  
+  // 開啟開發者工具以便調試
+  win.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {

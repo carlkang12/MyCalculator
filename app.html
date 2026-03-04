@@ -42,7 +42,10 @@
             if (fs && path) {
                 let projectRoot;
                 try {
-                    if (process.resourcesPath) {
+                    // 判斷是否為打包環境：檢查路徑中是否包含 node_modules
+                    const isPackaged = process.resourcesPath && !process.resourcesPath.includes('node_modules');
+                    
+                    if (isPackaged) {
                         // 打包後的 exe：從 resources 目錄往上找專案根目錄
                         // 路徑結構：MyCalculator/分攤計算器-win32-x64/resources/app/
                         // 我們要往上兩層到 分攤計算器-win32-x64，再往上一層到 MyCalculator
@@ -54,18 +57,18 @@
                             // 如果沒找到，嘗試其他路徑
                             projectRoot = resourcesDir;
                         }
+                        console.log('[打包模式] 專案根目錄:', projectRoot);
                     } else {
-                        // 開發環境：尋找包含 package.json 的目錄
-                        let currentDir = process.cwd();
-                        while (currentDir !== path.dirname(currentDir)) {
-                            if (fs.existsSync(path.join(currentDir, 'package.json'))) {
-                                projectRoot = currentDir;
-                                break;
-                            }
-                            currentDir = path.dirname(currentDir);
-                        }
-                        if (!projectRoot) {
-                            projectRoot = process.cwd();
+                        // 開發環境：直接使用 process.cwd()，因為執行 npm start 時就在專案根目錄
+                        projectRoot = process.cwd();
+                        console.log('[開發模式] 使用 process.cwd() 作為專案根目錄:', projectRoot);
+                        
+                        // 驗證 package.json 是否存在
+                        const packagePath = path.join(projectRoot, 'package.json');
+                        if (!fs.existsSync(packagePath)) {
+                            console.warn('[開發模式] 警告：在當前目錄找不到 package.json:', packagePath);
+                        } else {
+                            console.log('[開發模式] 確認找到 package.json');
                         }
                     }
                 } catch (e) {
@@ -642,13 +645,13 @@
                                                             statusText = <span className="text-emerald-300 text-[10px]">${Math.round(s.paid).toLocaleString()}</span>;
                                                         }
                                                     } else if (net > 0) {
-                                                        // 該成員應付但還沒付夠 → 需付給二哥
+                                                        // 該成員應付但還沒付夠
                                                         amountDisplay = <span className="text-rose-400">${Math.round(net).toLocaleString()}</span>;
-                                                        statusText = <span className="text-rose-300 text-[10px]">→ 應付二哥</span>;
+                                                        statusText = <span className="text-rose-300 text-[10px]">需補款項</span>;
                                                     } else if (net < 0) {
-                                                        // 該成員多付了 → 二哥應退款給他
+                                                        // 該成員多付了
                                                         amountDisplay = <span className="text-amber-400">${Math.round(Math.abs(net)).toLocaleString()}</span>;
-                                                        statusText = <span className="text-amber-300 text-[10px]">← 二哥應退</span>;
+                                                        statusText = <span className="text-amber-300 text-[10px]">多付金額</span>;
                                                     } else {
                                                         if (s.paid > 0) {
                                                             amountDisplay = <span className="text-emerald-400">已結清</span>;
@@ -873,7 +876,7 @@
                                                                 }`}>
                                                                     {m === '二哥' 
                                                                         ? (net < 0 ? '多付金額' : (net > 0 ? '需補款項' : '無欠款'))
-                                                                        : (net > 0 ? '→ 應付二哥' : (net < 0 ? '← 二哥應退' : '無欠款'))
+                                                                        : (net > 0 ? '需補款項' : (net < 0 ? '多付金額' : '無欠款'))
                                                                     }
                                                                 </p>
                                                             </div>
@@ -882,28 +885,9 @@
                                                 })}
                                             </div>
                                             
-                                            {/* 二哥最終統計卡片 */}
+                                            {/* 公用基金卡片 */}
                                             <div className="bg-indigo-600 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
-                                                <div className="relative z-10 space-y-4">
-                                                    <div>
-                                                        <p className="text-[10px] font-black text-white/60 uppercase tracking-widest mb-1">二哥多付金額</p>
-                                                        <div className="flex justify-between items-end">
-                                                            <p className="text-3xl font-black font-mono">
-                                                                ${(() => {
-                                                                    const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
-                                                                    return Math.round(Math.abs(currentRecord.summary.finalBalance)).toLocaleString();
-                                                                })()}
-                                                            </p>
-                                                            <SimpleIcon name="check" size={30} className="text-white/20 mb-1" />
-                                                        </div>
-                                                        <p className="text-[10px] text-indigo-200 font-medium mt-1">
-                                                            {(() => {
-                                                                const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
-                                                                return currentRecord.summary.finalBalance > 0 ? '其他成員應付給二哥的總額' : (currentRecord.summary.finalBalance < 0 ? '二哥應拿出來分給成員的錢' : '目前帳務平衡');
-                                                            })()}
-                                                        </p>
-                                                    </div>
-
+                                                <div className="relative z-10">
                                                     {(() => {
                                                         const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
                                                         const publicFund = currentRecord.summary.publicFund || currentRecord.summary.refundNeeded || (() => {
@@ -916,17 +900,26 @@
                                                             return fund;
                                                         })();
                                                         return publicFund > 0 ? (
-                                                            <div className="bg-white/10 p-3 rounded-xl border border-white/20 backdrop-blur-sm">
-                                                                <div className="flex items-center gap-2 text-emerald-300 mb-1">
-                                                                    <SimpleIcon name="wallet" size={14} />
-                                                                    <p className="text-xs font-black uppercase">公用基金餘額</p>
+                                                            <div>
+                                                                <div className="flex items-center gap-2 text-emerald-300 mb-2">
+                                                                    <SimpleIcon name="wallet" size={18} />
+                                                                    <p className="text-xs font-black uppercase tracking-widest">公用基金餘額</p>
                                                                 </div>
-                                                                <p className="text-2xl font-black font-mono text-white">
+                                                                <p className="text-4xl font-black font-mono text-white mb-2">
                                                                     ${Math.round(publicFund).toLocaleString()}
                                                                 </p>
-                                                                <p className="text-[10px] text-white/60 font-medium mt-0.5">大家多付的部分，可作為下期抵扣</p>
+                                                                <p className="text-sm text-white/80 font-medium">大家多付的部分，可作為下期抵扣</p>
                                                             </div>
-                                                        ) : null;
+                                                        ) : (
+                                                            <div>
+                                                                <div className="flex items-center gap-2 text-white/60 mb-2">
+                                                                    <SimpleIcon name="check" size={18} />
+                                                                    <p className="text-xs font-black uppercase tracking-widest">帳務狀態</p>
+                                                                </div>
+                                                                <p className="text-2xl font-black text-white mb-1">已結清</p>
+                                                                <p className="text-sm text-white/60 font-medium">目前無公用基金餘額</p>
+                                                            </div>
+                                                        );
                                                     })()}
                                                 </div>
                                             </div>
