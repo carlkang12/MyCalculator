@@ -193,6 +193,28 @@
             const [editingRecord, setEditingRecord] = useState(null);
             const [isEditMode, setIsEditMode] = useState(false);
             const [confirmStep, setConfirmStep] = useState(0);
+            
+            // 上期餘額開關（可選功能）
+            const [applyPreviousBalance, setApplyPreviousBalance] = useState(() => {
+                const saved = localStorage.getItem('applyPreviousBalance');
+                return saved ? JSON.parse(saved) : true; // 預設開啟
+            });
+
+            // 計算上期餘額（從最新的歷史記錄中取得）
+            const previousBalance = useMemo(() => {
+                if (history.length === 0) return {};
+                const lastRecord = history[0]; // 最新的記錄
+                const balance = {};
+                
+                // 從上期的 summary.details 計算每個人的餘額
+                Object.keys(lastRecord.summary.details).forEach(member => {
+                    const detail = lastRecord.summary.details[member];
+                    // 餘額 = 實付 - 應付（正數表示多付，負數表示少付）
+                    balance[member] = detail.paid - detail.shouldPay;
+                });
+                
+                return balance;
+            }, [history]);
 
             useEffect(() => {
                 localStorage.setItem('members_v2', JSON.stringify(members));
@@ -201,6 +223,10 @@
             useEffect(() => {
                 localStorage.setItem('expenses_v8', JSON.stringify(expenses));
             }, [expenses]);
+            
+            useEffect(() => {
+                localStorage.setItem('applyPreviousBalance', JSON.stringify(applyPreviousBalance));
+            }, [applyPreviousBalance]);
             
             useEffect(() => {
                 // 將歷史紀錄儲存到檔案
@@ -222,9 +248,14 @@
                 }
             };
 
-            const calculateResults = (expenseList) => {
+            const calculateResults = (expenseList, prevBalance = {}) => {
                 const stats = {};
-                members.forEach(m => stats[m] = { paid: 0, shouldPay: 0 });
+                members.forEach(m => stats[m] = { 
+                    paid: 0, 
+                    shouldPay: 0, 
+                    currentPeriodShouldPay: 0, // 本期原始應付金額
+                    previousBalance: prevBalance[m] || 0 
+                });
                 
                 let totalPool = 0; // 總本期公費支出
                 let publicFund = 0; // 公用基金（大家多付的部分）
@@ -246,8 +277,20 @@
                         const perPerson = amt / splitWith.length;
                         splitWith.forEach(m => {
                             // Only count if member still exists
-                            if (stats[m]) stats[m].shouldPay += perPerson;
+                            if (stats[m]) {
+                                stats[m].shouldPay += perPerson;
+                                stats[m].currentPeriodShouldPay += perPerson; // 保留本期原始應付
+                            }
                         });
+                    }
+                });
+
+                // 將上期餘額加入計算（上期多付的人本期應付金額減少，上期少付的人本期應付金額增加）
+                members.forEach(m => {
+                    if (stats[m] && prevBalance[m]) {
+                        // prevBalance[m] > 0 表示上期多付，本期應付減少
+                        // prevBalance[m] < 0 表示上期少付，本期應付增加
+                        stats[m].shouldPay -= prevBalance[m];
                     }
                 });
 
@@ -269,7 +312,21 @@
                 };
             };
 
-            const summary = useMemo(() => calculateResults(expenses), [expenses, members]);
+            const summary = useMemo(() => calculateResults(expenses, applyPreviousBalance ? previousBalance : {}), [expenses, members, previousBalance, applyPreviousBalance]);
+
+            // 獲取某個歷史記錄對應的上期餘額
+            const getPreviousBalanceForRecord = (recordId) => {
+                const recordIndex = history.findIndex(h => h.id === recordId);
+                if (recordIndex < 0 || recordIndex >= history.length - 1) return {};
+                
+                const prevRecord = history[recordIndex + 1];
+                const balance = {};
+                Object.keys(prevRecord.summary.details).forEach(member => {
+                    const detail = prevRecord.summary.details[member];
+                    balance[member] = detail.paid - detail.shouldPay;
+                });
+                return balance;
+            };
 
             const addExpense = (type) => {
                 const defaultPayer = members.includes('二哥') ? '二哥' : members[0];
@@ -320,7 +377,19 @@
             };
 
             const handleSaveEdit = () => {
-                const updatedSummary = calculateResults(editingRecord.rawExpenses);
+                // 找到正在編輯的記錄在 history 中的位置
+                const recordIndex = history.findIndex(h => h.id === editingRecord.id);
+                // 取得上一筆記錄的餘額（如果存在）
+                const prevBalance = {};
+                if (recordIndex < history.length - 1) {
+                    const prevRecord = history[recordIndex + 1];
+                    Object.keys(prevRecord.summary.details).forEach(member => {
+                        const detail = prevRecord.summary.details[member];
+                        prevBalance[member] = detail.paid - detail.shouldPay;
+                    });
+                }
+                
+                const updatedSummary = calculateResults(editingRecord.rawExpenses, prevBalance);
                 const updatedRecord = {
                     ...editingRecord,
                     summary: updatedSummary
@@ -566,7 +635,7 @@
 
                                 <div className="lg:col-span-5">
                                     <div className="bg-slate-900 text-white rounded-[2.5rem] shadow-2xl p-8 sticky top-24 border border-white/10">
-                                        <div className="flex items-center gap-2 mb-8 justify-between">
+                                        <div className="flex items-center gap-2 mb-6 justify-between">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-2 bg-indigo-500/20 rounded-lg">
                                                     <SimpleIcon name="chart" size={18} className="text-indigo-400" />
@@ -578,6 +647,71 @@
                                                 <p className="text-white font-mono font-bold">${Math.round(summary.totalPool).toLocaleString()}</p>
                                             </div>
                                         </div>
+
+                                        {/* 上期餘額開關 */}
+                                        {history.length > 0 && Object.keys(previousBalance).length > 0 && Object.values(previousBalance).some(v => v !== 0) && (
+                                            <div className="mb-6">
+                                                <button 
+                                                    onClick={() => setApplyPreviousBalance(!applyPreviousBalance)}
+                                                    className={`w-full p-4 rounded-2xl border-2 transition-all ${
+                                                        applyPreviousBalance 
+                                                            ? 'bg-amber-500/20 border-amber-400/50 hover:bg-amber-500/30' 
+                                                            : 'bg-slate-800/50 border-slate-700/50 hover:bg-slate-800/70'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3">
+                                                            <div className={`w-12 h-6 rounded-full relative transition-all ${
+                                                                applyPreviousBalance ? 'bg-amber-500' : 'bg-slate-600'
+                                                            }`}>
+                                                                <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                                                                    applyPreviousBalance ? 'translate-x-7' : 'translate-x-1'
+                                                                }`}></div>
+                                                            </div>
+                                                            <div className="text-left">
+                                                                <p className="text-sm font-bold text-white">套用上期餘額</p>
+                                                                <p className="text-[10px] text-white/60 font-medium">
+                                                                    {applyPreviousBalance ? '已開啟：上期餘額會影響本期計算' : '已關閉：本期獨立計算'}
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${
+                                                            applyPreviousBalance ? 'bg-amber-400/20 text-amber-300' : 'bg-slate-700 text-slate-400'
+                                                        }`}>
+                                                            {applyPreviousBalance ? 'ON' : 'OFF'}
+                                                        </div>
+                                                    </div>
+                                                </button>
+                                            </div>
+                                        )}
+
+                                        {/* 上期餘額提示 */}
+                                        {applyPreviousBalance && history.length > 0 && Object.keys(previousBalance).length > 0 && Object.values(previousBalance).some(v => v !== 0) && (
+                                            <div className="mb-6 bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-400/30 rounded-2xl p-4">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="p-2 bg-amber-500/20 rounded-lg">
+                                                        <SimpleIcon name="info" size={16} className="text-amber-400" />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-[11px] font-black text-amber-300 uppercase tracking-wider mb-2">上期餘額已納入計算</p>
+                                                        <div className="space-y-1">
+                                                            {Object.entries(previousBalance).filter(([_, val]) => val !== 0).map(([member, balance]) => (
+                                                                <p key={member} className="text-[10px] text-white/80 font-medium">
+                                                                    {member}：上期
+                                                                    <span className={balance > 0 ? "text-amber-300 font-bold" : "text-rose-300 font-bold"}>
+                                                                        {balance > 0 ? "多付" : "少付"} ${Math.round(Math.abs(balance)).toLocaleString()}
+                                                                    </span>
+                                                                    ，本期應付
+                                                                    <span className={balance > 0 ? "text-emerald-300 font-bold" : "text-rose-300 font-bold"}>
+                                                                        {balance > 0 ? "減少" : "增加"}
+                                                                    </span>
+                                                                </p>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
 
                                         <div className="space-y-6">
                                             <div className="grid grid-cols-2 gap-4">
@@ -630,6 +764,7 @@
                                                 {members.map(m => {
                                                     const s = summary.details[m];
                                                     const net = s.shouldPay - s.paid;
+                                                    const prevBal = s.previousBalance || 0;
                                                     
                                                     let amountDisplay, statusText;
                                                     if (m === '二哥') {
@@ -666,7 +801,21 @@
                                                         <div key={m} className="flex justify-between items-center glass-card p-3 rounded-2xl">
                                                             <div>
                                                                 <p className="text-sm font-bold text-white">{m}</p>
-                                                                <p className="text-[9px] text-white/60 font-bold">應付 ${Math.round(s.shouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}</p>
+                                                                <p className="text-[9px] text-white/60 font-bold">
+                                                                    {applyPreviousBalance && prevBal !== 0 ? (
+                                                                        <>
+                                                                            當期應付 ${Math.round(s.currentPeriodShouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}
+                                                                            <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
+                                                                                {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
+                                                                            </span>
+                                                                            <span className="text-white/80">
+                                                                                {" "}→ 實際應付 ${Math.round(s.shouldPay).toLocaleString()}
+                                                                            </span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>應付 ${Math.round(s.shouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}</>
+                                                                    )}
+                                                                </p>
                                                             </div>
                                                             <div className="text-right">
                                                                 <p className="text-sm font-black font-mono">
@@ -852,14 +1001,30 @@
                                             </div>
                                             <div className="bg-slate-900 rounded-[2rem] p-6 space-y-4">
                                                 {members.map(m => {
-                                                    const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
+                                                    const prevBalance = getPreviousBalanceForRecord(viewingRecord.id);
+                                                    const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance) } : viewingRecord;
                                                     const s = currentRecord.summary.details[m];
+                                                    const prevBal = s.previousBalance || 0;
                                                     const net = s.shouldPay - s.paid;
                                                     return (
                                                         <div key={m} className="flex justify-between items-center border-b border-white/5 pb-4 last:border-0 last:pb-0">
                                                             <div>
                                                                 <p className="text-white font-bold text-sm">{m}</p>
-                                                                <p className="text-[10px] text-white/30 font-bold uppercase">應付 ${Math.round(s.shouldPay).toLocaleString()} | 已付 ${Math.round(s.paid).toLocaleString()}</p>
+                                                                <p className="text-[10px] text-white/30 font-bold uppercase">
+                                                                    {prevBal !== 0 ? (
+                                                                        <>
+                                                                            當期應付 ${Math.round(s.currentPeriodShouldPay || s.shouldPay).toLocaleString()} | 已付 ${Math.round(s.paid).toLocaleString()}
+                                                                            <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
+                                                                                {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
+                                                                            </span>
+                                                                            <span className="text-white/50">
+                                                                                {" "}→ 實際應付 ${Math.round(s.shouldPay).toLocaleString()}
+                                                                            </span>
+                                                                        </>
+                                                                    ) : (
+                                                                        <>應付 ${Math.round(s.shouldPay).toLocaleString()} | 已付 ${Math.round(s.paid).toLocaleString()}</>
+                                                                    )}
+                                                                </p>
                                                             </div>
                                                             <div className="text-right">
                                                                 <p className={`text-sm font-black font-mono ${
@@ -889,7 +1054,8 @@
                                             <div className="bg-indigo-600 rounded-[2rem] p-6 text-white shadow-xl shadow-indigo-100 relative overflow-hidden">
                                                 <div className="relative z-10">
                                                     {(() => {
-                                                        const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses) } : viewingRecord;
+                                                        const prevBalance = getPreviousBalanceForRecord(viewingRecord.id);
+                                                        const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance) } : viewingRecord;
                                                         const publicFund = currentRecord.summary.publicFund || currentRecord.summary.refundNeeded || (() => {
                                                             let fund = 0;
                                                             Object.keys(currentRecord.summary.details).forEach(m => {
