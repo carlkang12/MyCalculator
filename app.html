@@ -211,6 +211,10 @@
                 const saved = localStorage.getItem('daGeQuota');
                 return saved ? JSON.parse(saved) : 20000; // 2026年3月預設2萬（2月1萬+3月1萬）
             });
+            
+            // 调整额度的输入状态
+            const [isEditingQuota, setIsEditingQuota] = useState(false);
+            const [tempQuota, setTempQuota] = useState(daGeQuota);
 
             // 計算上期餘額（從最新的歷史記錄中取得）
             const previousBalance = useMemo(() => {
@@ -413,47 +417,8 @@
                     }
                 });
 
-                // 🆕 公平分攤模式：將多付者的金額平均分配（而非所有人平均分配費用）
-                if (enableFairSplit) {
-                    // 保存原始應付金額
-                    members.forEach(m => {
-                        if (stats[m]) {
-                            stats[m].originalShouldPay = stats[m].currentPeriodShouldPay;
-                        }
-                    });
-                    
-                    // 找出所有多付的人（實付 > 應付）
-                    const overpayers = [];
-                    let totalOverpaid = 0;
-                    
-                    members.forEach(m => {
-                        if (stats[m]) {
-                            const net = stats[m].paid - stats[m].shouldPay;
-                            if (net > 0.01) { // 多付了
-                                overpayers.push({ member: m, overpaid: net });
-                                totalOverpaid += net;
-                            }
-                        }
-                    });
-                    
-                    // 如果有多付的人，將多付金額平均分配
-                    if (overpayers.length > 0) {
-                        const averageOverpaid = totalOverpaid / overpayers.length;
-                        
-                        // 調整多付者的應付金額，讓每個人最終都多付相同金額
-                        overpayers.forEach(op => {
-                            const currentNet = stats[op.member].paid - stats[op.member].shouldPay;
-                            const adjustment = currentNet - averageOverpaid;
-                            // adjustment > 0 表示多付超過平均，應付要增加
-                            // adjustment < 0 表示多付低於平均，應付要減少
-                            stats[op.member].shouldPay += adjustment;
-                            stats[op.member].currentPeriodShouldPay += adjustment; // 同步更新
-                        });
-                    }
-                }
-
                 // 將上期餘額加入計算（上期多付的人本期應付金額減少，上期少付的人本期應付金額增加）
-                // ⚠️ 無論是否公平分攤，上期餘額都要計入（上期欠的債要還）
+                // ⚠️ 必須在公平分攤之前處理，這樣計算二哥多付時才會包含上期餘額
                 members.forEach(m => {
                     if (stats[m] && prevBalance[m]) {
                         // prevBalance[m] > 0 表示上期多付，本期應付減少
@@ -461,6 +426,37 @@
                         stats[m].shouldPay -= prevBalance[m];
                     }
                 });
+
+                // 🆕 公平分攤模式：把二哥多付的金額由所有人平均分攤，讓二哥淨餘額歸零
+                if (enableFairSplit) {
+                    // 保存原始應付金額（已包含上期餘額調整）
+                    members.forEach(m => {
+                        if (stats[m]) {
+                            stats[m].originalShouldPay = stats[m].shouldPay;
+                        }
+                    });
+                    
+                    // 找到二哥並計算他的多付金額（包含上期餘額）
+                    const erge = members.find(m => m === '二哥');
+                    if (erge && stats[erge]) {
+                        const ergeOverpaid = stats[erge].paid - stats[erge].shouldPay;
+                        
+                        // 只有當二哥多付時才進行分攤
+                        if (ergeOverpaid > 0) {
+                            const sharePerPerson = ergeOverpaid / members.length;
+                            
+                            // 二哥應付增加多付金額（讓淨餘額歸零）
+                            stats[erge].shouldPay += ergeOverpaid;
+                            
+                            // 其他人應付增加分攤額（承擔分攤，讓他們少付更多或多付更少）
+                            members.forEach(m => {
+                                if (m !== erge && stats[m]) {
+                                    stats[m].shouldPay += sharePerPerson;
+                                }
+                            });
+                        }
+                    }
+                }
 
                 // 計算公用基金（所有成員多付的總額）
                 members.forEach(m => {
@@ -996,7 +992,53 @@
                                                     <SimpleIcon name="wallet" size={16} className="text-amber-400" />
                                                 </div>
                                                 <div className="flex-1">
-                                                    <p className="text-[11px] font-black text-amber-300 uppercase tracking-wider mb-2">💰 大哥扣打額度</p>
+                                                    <div className="flex justify-between items-center mb-2">
+                                                        <p className="text-[11px] font-black text-amber-300 uppercase tracking-wider">💰 大哥扣打額度</p>
+                                                        {!isEditingQuota ? (
+                                                            <button 
+                                                                onClick={() => {
+                                                                    setTempQuota(daGeQuota);
+                                                                    setIsEditingQuota(true);
+                                                                }}
+                                                                className="text-[9px] px-2 py-1 bg-amber-500/30 hover:bg-amber-500/50 rounded-lg text-amber-200 font-bold transition-all"
+                                                            >
+                                                                調整額度
+                                                            </button>
+                                                        ) : (
+                                                            <div className="flex gap-1 items-center">
+                                                                <input
+                                                                    type="number"
+                                                                    value={tempQuota}
+                                                                    onChange={(e) => setTempQuota(Number(e.target.value))}
+                                                                    className="w-20 px-2 py-1 rounded-lg text-[10px] text-slate-800 font-bold"
+                                                                    autoFocus
+                                                                    onKeyDown={(e) => {
+                                                                        if (e.key === 'Enter') {
+                                                                            setDaGeQuota(tempQuota);
+                                                                            setIsEditingQuota(false);
+                                                                        } else if (e.key === 'Escape') {
+                                                                            setIsEditingQuota(false);
+                                                                        }
+                                                                    }}
+                                                                />
+                                                                <button
+                                                                    onClick={() => {
+                                                                        setDaGeQuota(tempQuota);
+                                                                        setIsEditingQuota(false);
+                                                                    }}
+                                                                    className="text-[9px] px-2 py-1 bg-emerald-500/80 hover:bg-emerald-600 rounded-lg text-white font-bold"
+                                                                >
+                                                                    ✓
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setIsEditingQuota(false)}
+                                                                    className="text-[9px] px-2 py-1 bg-rose-500/80 hover:bg-rose-600 rounded-lg text-white font-bold"
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            </div>
+                                                        )}
+                                                    </div>
                                                     <div className="space-y-1 text-[10px] text-white/80 font-medium">
                                                         <p>本期可用扣打：<span className="text-amber-300 font-black text-sm">${daGeQuota.toLocaleString()}</span></p>
                                                         {summary.daGeQuotaInfo && (
@@ -1300,8 +1342,8 @@
                                                             amountDisplay = <span className="text-rose-400">${Math.round(net).toLocaleString()}</span>;
                                                             statusText = <span className="text-rose-300 text-[10px]">需補款項</span>;
                                                         } else {
-                                                            amountDisplay = <span className="text-emerald-400">已結清</span>;
-                                                            statusText = <span className="text-emerald-300 text-[10px]">${Math.round(s.paid).toLocaleString()}</span>;
+                                                            amountDisplay = <span className="text-emerald-400">$0</span>;
+                                                            statusText = <span className="text-emerald-300 text-[10px]">淨餘額歸零</span>;
                                                         }
                                                     } else if (net > 0) {
                                                         // 該成員應付但還沒付夠
@@ -1344,8 +1386,10 @@
                                                                         <>
                                                                             {s.originalShouldPay ? (
                                                                                 <>
-                                                                                    原應付 ${Math.round(s.originalShouldPay).toLocaleString()} 
-                                                                                    <span className="text-emerald-300"> → 公平分攤 ${Math.round(s.currentPeriodShouldPay).toLocaleString()}</span>
+                                                                                    原應付 ${Math.round(s.currentPeriodShouldPay).toLocaleString()} 
+                                                                                    <span className="text-emerald-300">
+                                                                                        {" "}→ 公平分攤 +${Math.round(s.shouldPay - s.originalShouldPay).toLocaleString()}
+                                                                                    </span>
                                                                                     {prevBal !== 0 && (
                                                                                         <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
                                                                                             {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
@@ -1365,7 +1409,7 @@
                                                                                                 {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
                                                                                             </span>
                                                                                             <span className="text-white/80">
-                                                                                                {" "}= 最終 ${Math.round(s.shouldPay).toLocaleString()}
+                                                                                                {" "}= 最終應付 ${Math.round(s.shouldPay).toLocaleString()}
                                                                                             </span>
                                                                                         </>
                                                                                     )}
@@ -1379,9 +1423,6 @@
                                                                             當期應付 ${Math.round(s.currentPeriodShouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}
                                                                             <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
                                                                                 {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
-                                                                            </span>
-                                                                            <span className="text-white/80">
-                                                                                {" "}→ 實際應付 ${Math.round(s.shouldPay).toLocaleString()}
                                                                             </span>
                                                                         </>
                                                                     ) : (
@@ -1605,9 +1646,6 @@
                                                                             <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
                                                                                 {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
                                                                             </span>
-                                                                            <span className="text-white/50">
-                                                                                {" "}→ 實際應付 ${Math.round(s.shouldPay).toLocaleString()}
-                                                                            </span>
                                                                         </>
                                                                     ) : (
                                                                         <>應付 ${Math.round(s.shouldPay).toLocaleString()} | 已付 ${Math.round(s.paid).toLocaleString()}</>
@@ -1620,7 +1658,7 @@
                                                                         ? (net < 0 ? 'text-indigo-400' : net > 0 ? 'text-rose-400' : 'text-emerald-400')
                                                                         : (net > 0 ? 'text-rose-400' : (net < 0 ? 'text-amber-400' : 'text-emerald-400'))
                                                                 }`}>
-                                                                    {net !== 0 ? `$${Math.round(Math.abs(net)).toLocaleString()}` : '已結清'}
+                                                                    {net !== 0 ? `$${Math.round(Math.abs(net)).toLocaleString()}` : '$0'}
                                                                 </p>
                                                                 <p className={`text-[10px] font-bold ${
                                                                     m === '二哥' 

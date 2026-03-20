@@ -19,7 +19,7 @@ function createWindow() {
   win.loadFile('app.html');
   
   // 開啟開發者工具以便調試（正式版本請註解此行）
-  // win.webContents.openDevTools();
+  win.webContents.openDevTools();
 }
 
 app.whenReady().then(() => {
