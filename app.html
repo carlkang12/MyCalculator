@@ -206,10 +206,10 @@
                 return saved ? JSON.parse(saved) : false; // 預設關閉
             });
 
-            // 大哥扣打額度（每月1萬，會累加）
+            // 大哥扣打額度（每月1萬，會累加）// 2月開始有1萬，3月累加到2萬
             const [daGeQuota, setDaGeQuota] = useState(() => {
                 const saved = localStorage.getItem('daGeQuota');
-                return saved ? JSON.parse(saved) : 10000; // 預設1萬
+                return saved ? JSON.parse(saved) : 20000; // 2026年3月預設2萬（2月1萬+3月1萬）
             });
 
             // 計算上期餘額（從最新的歷史記錄中取得）
@@ -413,25 +413,43 @@
                     }
                 });
 
-                // 🆕 公平分攤模式：重新計算每個人的應付金額
+                // 🆕 公平分攤模式：將多付者的金額平均分配（而非所有人平均分配費用）
                 if (enableFairSplit) {
-                    // 計算總應付金額（不包含上期餘額）
-                    let totalShouldPay = 0;
-                    members.forEach(m => {
-                        totalShouldPay += stats[m].currentPeriodShouldPay;
-                    });
-                    
-                    // 平均分配給每個成員
-                    const averageShouldPay = totalShouldPay / members.length;
-                    
-                    // 更新每個人的應付金額為平均值
+                    // 保存原始應付金額
                     members.forEach(m => {
                         if (stats[m]) {
-                            stats[m].originalShouldPay = stats[m].currentPeriodShouldPay; // 保存原始應付
-                            stats[m].currentPeriodShouldPay = averageShouldPay; // 更新為平均值
-                            stats[m].shouldPay = averageShouldPay; // 更新應付金額
+                            stats[m].originalShouldPay = stats[m].currentPeriodShouldPay;
                         }
                     });
+                    
+                    // 找出所有多付的人（實付 > 應付）
+                    const overpayers = [];
+                    let totalOverpaid = 0;
+                    
+                    members.forEach(m => {
+                        if (stats[m]) {
+                            const net = stats[m].paid - stats[m].shouldPay;
+                            if (net > 0.01) { // 多付了
+                                overpayers.push({ member: m, overpaid: net });
+                                totalOverpaid += net;
+                            }
+                        }
+                    });
+                    
+                    // 如果有多付的人，將多付金額平均分配
+                    if (overpayers.length > 0) {
+                        const averageOverpaid = totalOverpaid / overpayers.length;
+                        
+                        // 調整多付者的應付金額，讓每個人最終都多付相同金額
+                        overpayers.forEach(op => {
+                            const currentNet = stats[op.member].paid - stats[op.member].shouldPay;
+                            const adjustment = currentNet - averageOverpaid;
+                            // adjustment > 0 表示多付超過平均，應付要增加
+                            // adjustment < 0 表示多付低於平均，應付要減少
+                            stats[op.member].shouldPay += adjustment;
+                            stats[op.member].currentPeriodShouldPay += adjustment; // 同步更新
+                        });
+                    }
                 }
 
                 // 將上期餘額加入計算（上期多付的人本期應付金額減少，上期少付的人本期應付金額增加）
@@ -546,7 +564,8 @@
                     month: `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`,
                     summary: summary,
                     rawExpenses: [...expenses],
-                    daGeQuotaAtTime: daGeQuota // 保存結算時的扣打額度
+                    daGeQuotaAtTime: daGeQuota, // 保存結算時的扣打額度
+                    useFairSplitAtTime: useFairSplit // 保存結算時的公平分攤設定
                 };
                 setHistory([record, ...history]);
                 setExpenses([]);
@@ -581,12 +600,14 @@
                 // 🆕 計算時傳入當前扣打額度（如果是最新一筆記錄）
                 const isLatestRecord = recordIndex === 0;
                 const quotaToUse = isLatestRecord ? daGeQuota : (editingRecord.daGeQuotaAtTime || 10000);
-                const updatedSummary = calculateResults(editingRecord.rawExpenses, prevBalance, useFairSplit, quotaToUse);
+                const fairSplitToUse = isLatestRecord ? useFairSplit : (editingRecord.useFairSplitAtTime || false);
+                const updatedSummary = calculateResults(editingRecord.rawExpenses, prevBalance, fairSplitToUse, quotaToUse);
                 
                 const updatedRecord = {
                     ...editingRecord,
                     summary: updatedSummary,
-                    daGeQuotaAtTime: quotaToUse // 保存使用的扣打額度
+                    daGeQuotaAtTime: quotaToUse, // 保存使用的扣打額度
+                    useFairSplitAtTime: fairSplitToUse // 保存使用的公平分攤設定
                 };
                 setHistory(history.map(h => h.id === updatedRecord.id ? updatedRecord : h));
                 setViewingRecord(updatedRecord);
@@ -933,9 +954,9 @@
                                                             }`}></div>
                                                         </div>
                                                         <div className="text-left">
-                                                            <p className="text-sm font-bold text-white">公平分攤模式</p>
+                                                            <p className="text-sm font-bold text-white">多付者公平分攤</p>
                                                             <p className="text-[10px] text-white/60 font-medium">
-                                                                {useFairSplit ? '已開啟：所有費用平均分攤' : '已關閉：依實際分攤人數計算'}
+                                                                {useFairSplit ? '已開啟：多付者金額平均分配' : '已關閉：依實際分攤人數計算'}
                                                             </p>
                                                         </div>
                                                     </div>
@@ -956,11 +977,12 @@
                                                         <SimpleIcon name="info" size={16} className="text-emerald-400" />
                                                     </div>
                                                     <div className="flex-1">
-                                                        <p className="text-[11px] font-black text-emerald-300 uppercase tracking-wider mb-2">公平分攤已啟用</p>
+                                                        <p className="text-[11px] font-black text-emerald-300 uppercase tracking-wider mb-2">多付者公平分攤已啟用</p>
                                                         <div className="space-y-1 text-[10px] text-white/80 font-medium">
-                                                            <p>✨ 所有費用將平均分攤給 {members.length} 位成員</p>
-                                                            <p>💰 每人應付：${Math.round(summary.totalPool / members.length).toLocaleString()}</p>
-                                                            <p>🔄 轉帳方案已重新計算，達到完全公平</p>
+                                                            <p>✨ 多付者的金額將平均分配</p>
+                                                            <p>💰 讓所有多付的人都多付相同金額</p>
+                                                            <p>📊 少付的人不受影響（如大哥扣打）</p>
+                                                            <p>🔄 轉帳方案已重新計算</p>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -1094,9 +1116,9 @@
                                                                 <SimpleIcon name="info" size={14} className="text-emerald-400" />
                                                             </div>
                                                             <div className="flex-1">
-                                                                <p className="text-[10px] font-black text-emerald-300 uppercase mb-0.5">公平分攤計算</p>
+                                                                <p className="text-[10px] font-black text-emerald-300 uppercase mb-0.5">多付者公平分攤</p>
                                                                 <p className="text-[9px] text-white/70 font-medium">
-                                                                    費用已平均分配，每人應付 ${Math.round(summary.totalPool / members.length).toLocaleString()}，共需 {summary.transfers.length} 筆轉帳
+                                                                    多付者的金額已平均分配，讓每個多付的人都多付相同金額，共需 {summary.transfers.length} 筆轉帳
                                                                 </p>
                                                             </div>
                                                         </div>
@@ -1123,7 +1145,7 @@
                                                         
                                                         <div className="bg-white/5 p-3 rounded-xl mt-2">
                                                             <p className="text-[9px] text-white/70 font-medium text-center">
-                                                                ✨ 完成轉帳後，每個人都支付 <span className="text-emerald-300 font-black">${Math.round(summary.totalPool / members.length).toLocaleString()}</span>，達到完全公平！
+                                                                ✨ 多付者的金額已平均分配，讓每個多付的人都多付相同金額（少付的人不受影響）
                                                             </p>
                                                         </div>
                                                     </div>
@@ -1318,16 +1340,37 @@
                                                                             </span>
                                                                         </>
                                                                     ) : useFairSplit ? (
-                                                                        // 公平分攤模式顯示
+                                                                        // 公平分攤模式顯示（含上期餘額）
                                                                         <>
                                                                             {s.originalShouldPay ? (
                                                                                 <>
                                                                                     原應付 ${Math.round(s.originalShouldPay).toLocaleString()} 
-                                                                                    <span className="text-emerald-300"> → 公平分攤 ${Math.round(s.shouldPay).toLocaleString()}</span>
+                                                                                    <span className="text-emerald-300"> → 公平分攤 ${Math.round(s.currentPeriodShouldPay).toLocaleString()}</span>
+                                                                                    {prevBal !== 0 && (
+                                                                                        <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
+                                                                                            {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
+                                                                                        </span>
+                                                                                    )}
+                                                                                    <span className="text-white/80">
+                                                                                        {" "}= 最終應付 ${Math.round(s.shouldPay).toLocaleString()}
+                                                                                    </span>
                                                                                     {" "}/ 已付 ${Math.round(s.paid).toLocaleString()}
                                                                                 </>
                                                                             ) : (
-                                                                                <>應付 ${Math.round(s.shouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}</>
+                                                                                <>
+                                                                                    公平分攤 ${Math.round(s.currentPeriodShouldPay).toLocaleString()}
+                                                                                    {prevBal !== 0 && (
+                                                                                        <>
+                                                                                            <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
+                                                                                                {" "}(上期{prevBal > 0 ? "多付" : "少付"}${Math.round(Math.abs(prevBal)).toLocaleString()})
+                                                                                            </span>
+                                                                                            <span className="text-white/80">
+                                                                                                {" "}= 最終 ${Math.round(s.shouldPay).toLocaleString()}
+                                                                                            </span>
+                                                                                        </>
+                                                                                    )}
+                                                                                    {" "}/ 已付 ${Math.round(s.paid).toLocaleString()}
+                                                                                </>
                                                                             )}
                                                                         </>
                                                                     ) : applyPreviousBalance && prevBal !== 0 ? (
@@ -1532,7 +1575,9 @@
                                             <div className="bg-slate-900 rounded-[2rem] p-6 space-y-4">
                                                 {members.map(m => {
                                                     const prevBalance = getPreviousBalanceForRecord(viewingRecord.id);
-                                                    const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance) } : viewingRecord;
+                                                    const recordQuota = viewingRecord.daGeQuotaAtTime || 10000;
+                                                    const recordFairSplit = viewingRecord.useFairSplitAtTime || false;
+                                                    const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance, recordFairSplit, recordQuota) } : viewingRecord;
                                                     const s = currentRecord.summary.details[m];
                                                     const prevBal = s.previousBalance || 0;
                                                     const net = s.shouldPay - s.paid;
@@ -1598,7 +1643,9 @@
                                                 <div className="relative z-10">
                                                     {(() => {
                                                         const prevBalance = getPreviousBalanceForRecord(viewingRecord.id);
-                                                        const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance) } : viewingRecord;
+                                                        const recordQuota = viewingRecord.daGeQuotaAtTime || 10000;
+                                                        const recordFairSplit = viewingRecord.useFairSplitAtTime || false;
+                                                        const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance, recordFairSplit, recordQuota) } : viewingRecord;
                                                         const publicFund = currentRecord.summary.publicFund || currentRecord.summary.refundNeeded || (() => {
                                                             let fund = 0;
                                                             Object.keys(currentRecord.summary.details).forEach(m => {
@@ -1636,7 +1683,9 @@
                                             {/* 優化轉帳建議（歷史記錄） */}
                                             {(() => {
                                                 const prevBalance = getPreviousBalanceForRecord(viewingRecord.id);
-                                                const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance) } : viewingRecord;
+                                                const recordQuota = viewingRecord.daGeQuotaAtTime || 10000;
+                                                const recordFairSplit = viewingRecord.useFairSplitAtTime || false;
+                                                const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance, recordFairSplit, recordQuota) } : viewingRecord;
                                                 const transfers = currentRecord.summary.transfers || [];
                                                 const transferType = currentRecord.summary.transferType || 'normal';
                                                 

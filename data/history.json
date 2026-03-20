@@ -8,7 +8,7 @@
       "totalPaid": 16853,
       "ergeShouldPay": 11621.583333333334,
       "finalBalance": 5231.416666666666,
-      "publicFund": 15000.249999999998,
+      "publicFund": 9121.833333333332,
       "details": {
         "二哥": {
           "paid": 16853,
@@ -17,7 +17,7 @@
           "previousBalance": 0
         },
         "大哥": {
-          "paid": 17500,
+          "paid": 7500,
           "shouldPay": 11621.583333333334,
           "currentPeriodShouldPay": 11621.583333333334,
           "previousBalance": 0
@@ -31,40 +31,16 @@
       },
       "transfers": [
         {
-          "from": "三弟",
-          "to": "大哥",
-          "amount": 878
-        },
-        {
-          "from": "三弟",
+          "from": "大哥",
           "to": "二哥",
-          "amount": 231
+          "amount": 4122
         }
       ],
-      "transferType": "all_overpaid",
-      "totalOverpaid": 15000.249999999998,
-      "totalUnderpaid": 0,
-      "averageBalance": 5000.083333333333,
-      "balanceDetails": [
-        {
-          "member": "大哥",
-          "original": 5878.416666666666,
-          "shouldBe": 5000.083333333333,
-          "adjustment": 0
-        },
-        {
-          "member": "二哥",
-          "original": 5231.416666666666,
-          "shouldBe": 5000.083333333333,
-          "adjustment": 0
-        },
-        {
-          "member": "三弟",
-          "original": 3890.416666666666,
-          "shouldBe": 5000.083333333333,
-          "adjustment": -9.094947017729282e-13
-        }
-      ],
+      "transferType": "normal",
+      "totalOverpaid": 9121.833333333332,
+      "totalUnderpaid": 4121.583333333334,
+      "averageBalance": 0,
+      "balanceDetails": [],
       "isFairSplit": false
     },
     "rawExpenses": [
@@ -160,14 +136,6 @@
           "三弟",
           "大哥"
         ]
-      },
-      {
-        "id": 1768897138954,
-        "title": "個人當月支付-1月支出",
-        "amount": "10000",
-        "type": "personal",
-        "payer": "大哥",
-        "splitWith": []
       },
       {
         "id": 1767861454027,
