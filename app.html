@@ -206,6 +206,12 @@
                 return saved ? JSON.parse(saved) : false; // 預設關閉
             });
 
+            // 大哥扣打額度（每月1萬，會累加）
+            const [daGeQuota, setDaGeQuota] = useState(() => {
+                const saved = localStorage.getItem('daGeQuota');
+                return saved ? JSON.parse(saved) : 10000; // 預設1萬
+            });
+
             // 計算上期餘額（從最新的歷史記錄中取得）
             const previousBalance = useMemo(() => {
                 if (history.length === 0) return {};
@@ -237,6 +243,10 @@
             useEffect(() => {
                 localStorage.setItem('useFairSplit', JSON.stringify(useFairSplit));
             }, [useFairSplit]);
+            
+            useEffect(() => {
+                localStorage.setItem('daGeQuota', JSON.stringify(daGeQuota));
+            }, [daGeQuota]);
             
             useEffect(() => {
                 // 將歷史紀錄儲存到檔案
@@ -366,7 +376,7 @@
                 return result;
             };
 
-            const calculateResults = (expenseList, prevBalance = {}, enableFairSplit = false) => {
+            const calculateResults = (expenseList, prevBalance = {}, enableFairSplit = false, currentDaGeQuota = 10000) => {
                 const stats = {};
                 members.forEach(m => stats[m] = { 
                     paid: 0, 
@@ -442,6 +452,27 @@
                     }
                 });
 
+                // 🆕 大哥扣打計算（特殊處理）
+                let daGeQuotaInfo = null;
+                if (stats['大哥']) {
+                    const daGeShouldPay = stats['大哥'].shouldPay;
+                    const daGeActualShouldPay = Math.max(0, daGeShouldPay - currentDaGeQuota); // 使用扣打後的實際應付
+                    const quotaUsed = Math.min(daGeShouldPay, currentDaGeQuota); // 本期使用的扣打
+                    const quotaRemaining = currentDaGeQuota - quotaUsed; // 剩餘扣打
+                    
+                    daGeQuotaInfo = {
+                        originalShouldPay: daGeShouldPay, // 原始應付金額
+                        quotaAvailable: currentDaGeQuota, // 可用扣打
+                        quotaUsed: quotaUsed, // 本期使用扣打
+                        actualShouldPay: daGeActualShouldPay, // 扣打後實際應付
+                        quotaRemaining: quotaRemaining, // 本期剩餘扣打
+                        nextMonthQuota: quotaRemaining + 10000 // 下期扣打（本期剩餘+1萬）
+                    };
+                    
+                    // 保存扣打信息到 stats
+                    stats['大哥'].quotaInfo = daGeQuotaInfo;
+                }
+
                 // 計算優化後的轉帳方案
                 const transfersResult = optimizeTransfers(stats);
 
@@ -458,11 +489,12 @@
                     totalUnderpaid: transfersResult.totalUnderpaid, // 總少付金額
                     averageBalance: transfersResult.averageBalance, // 平均每人應多付金額
                     balanceDetails: transfersResult.balanceDetails, // 每個人的調整明細
-                    isFairSplit: enableFairSplit // 標記是否使用公平分攤模式
+                    isFairSplit: enableFairSplit, // 標記是否使用公平分攤模式
+                    daGeQuotaInfo: daGeQuotaInfo // 大哥扣打信息
                 };
             };
 
-            const summary = useMemo(() => calculateResults(expenses, applyPreviousBalance ? previousBalance : {}, useFairSplit), [expenses, members, previousBalance, applyPreviousBalance, useFairSplit]);
+            const summary = useMemo(() => calculateResults(expenses, applyPreviousBalance ? previousBalance : {}, useFairSplit, daGeQuota), [expenses, members, previousBalance, applyPreviousBalance, useFairSplit, daGeQuota]);
 
             // 獲取某個歷史記錄對應的上期餘額
             const getPreviousBalanceForRecord = (recordId) => {
@@ -513,11 +545,18 @@
                     date: new Date().toLocaleString(),
                     month: `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`,
                     summary: summary,
-                    rawExpenses: [...expenses]
+                    rawExpenses: [...expenses],
+                    daGeQuotaAtTime: daGeQuota // 保存結算時的扣打額度
                 };
                 setHistory([record, ...history]);
                 setExpenses([]);
                 setConfirmStep(0);
+                
+                // 🆕 更新大哥扣打額度（下期扣打 = 本期剩餘 + 1萬）
+                if (summary.daGeQuotaInfo) {
+                    setDaGeQuota(summary.daGeQuotaInfo.nextMonthQuota);
+                }
+                
                 setActiveTab('history');
             };
 
@@ -539,13 +578,24 @@
                     });
                 }
                 
-                const updatedSummary = calculateResults(editingRecord.rawExpenses, prevBalance);
+                // 🆕 計算時傳入當前扣打額度（如果是最新一筆記錄）
+                const isLatestRecord = recordIndex === 0;
+                const quotaToUse = isLatestRecord ? daGeQuota : (editingRecord.daGeQuotaAtTime || 10000);
+                const updatedSummary = calculateResults(editingRecord.rawExpenses, prevBalance, useFairSplit, quotaToUse);
+                
                 const updatedRecord = {
                     ...editingRecord,
-                    summary: updatedSummary
+                    summary: updatedSummary,
+                    daGeQuotaAtTime: quotaToUse // 保存使用的扣打額度
                 };
                 setHistory(history.map(h => h.id === updatedRecord.id ? updatedRecord : h));
                 setViewingRecord(updatedRecord);
+                
+                // 🆕 如果編輯的是最新一筆記錄，同步更新當前扣打額度
+                if (isLatestRecord && updatedSummary.daGeQuotaInfo) {
+                    setDaGeQuota(updatedSummary.daGeQuotaInfo.nextMonthQuota);
+                }
+                
                 setEditingRecord(null);
                 setIsEditMode(false);
             };
@@ -917,6 +967,29 @@
                                             </div>
                                         )}
 
+                                        {/* 🆕 大哥扣打額度顯示 */}
+                                        <div className="mb-6 bg-gradient-to-r from-amber-500/20 to-yellow-500/20 border border-amber-400/30 rounded-2xl p-4">
+                                            <div className="flex items-start gap-3">
+                                                <div className="p-2 bg-amber-500/20 rounded-lg">
+                                                    <SimpleIcon name="wallet" size={16} className="text-amber-400" />
+                                                </div>
+                                                <div className="flex-1">
+                                                    <p className="text-[11px] font-black text-amber-300 uppercase tracking-wider mb-2">💰 大哥扣打額度</p>
+                                                    <div className="space-y-1 text-[10px] text-white/80 font-medium">
+                                                        <p>本期可用扣打：<span className="text-amber-300 font-black text-sm">${daGeQuota.toLocaleString()}</span></p>
+                                                        {summary.daGeQuotaInfo && (
+                                                            <>
+                                                                <p>本期已使用：<span className="text-rose-300 font-bold">${Math.round(summary.daGeQuotaInfo.quotaUsed).toLocaleString()}</span></p>
+                                                                <p>本期剩餘：<span className="text-emerald-300 font-bold">${Math.round(summary.daGeQuotaInfo.quotaRemaining).toLocaleString()}</span></p>
+                                                                <p className="text-yellow-300 font-black">→ 下期扣打額度：${Math.round(summary.daGeQuotaInfo.nextMonthQuota).toLocaleString()}</p>
+                                                            </>
+                                                        )}
+                                                        <p className="text-white/60 text-[9px] mt-2">📌 每月固定增加 $10,000 扣打，未用完可累加至下期</p>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div className="space-y-6">
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="glass-card p-4 rounded-2xl">
@@ -1231,7 +1304,20 @@
                                                             <div>
                                                                 <p className="text-sm font-bold text-white">{m}</p>
                                                                 <p className="text-[9px] text-white/60 font-bold">
-                                                                    {useFairSplit ? (
+                                                                    {m === '大哥' && summary.daGeQuotaInfo ? (
+                                                                        // 🆕 大哥扣打模式顯示
+                                                                        <>
+                                                                            原應付 <span className="text-rose-300">${Math.round(summary.daGeQuotaInfo.originalShouldPay).toLocaleString()}</span>
+                                                                            {" "}/ 扣打 <span className="text-amber-300">${Math.round(summary.daGeQuotaInfo.quotaAvailable).toLocaleString()}</span>
+                                                                            {" "}→ 實付 <span className="text-emerald-300">${Math.round(summary.daGeQuotaInfo.actualShouldPay).toLocaleString()}</span>
+                                                                            {" "}/ 已付 ${Math.round(s.paid).toLocaleString()}
+                                                                            <br/>
+                                                                            <span className="text-yellow-300">
+                                                                                💰 本期扣打剩餘 ${Math.round(summary.daGeQuotaInfo.quotaRemaining).toLocaleString()} 
+                                                                                {" "}→ 下期扣打 ${Math.round(summary.daGeQuotaInfo.nextMonthQuota).toLocaleString()}
+                                                                            </span>
+                                                                        </>
+                                                                    ) : useFairSplit ? (
                                                                         // 公平分攤模式顯示
                                                                         <>
                                                                             {s.originalShouldPay ? (
@@ -1455,7 +1541,20 @@
                                                             <div>
                                                                 <p className="text-white font-bold text-sm">{m}</p>
                                                                 <p className="text-[10px] text-white/30 font-bold uppercase">
-                                                                    {prevBal !== 0 ? (
+                                                                    {m === '大哥' && currentRecord.summary.daGeQuotaInfo ? (
+                                                                        // 🆕 大哥扣打模式顯示（歷史紀錄）
+                                                                        <>
+                                                                            原應付 <span className="text-rose-300">${Math.round(currentRecord.summary.daGeQuotaInfo.originalShouldPay).toLocaleString()}</span>
+                                                                            {" "}/ 扣打 <span className="text-amber-300">${Math.round(currentRecord.summary.daGeQuotaInfo.quotaAvailable).toLocaleString()}</span>
+                                                                            {" "}→ 實付 <span className="text-emerald-300">${Math.round(currentRecord.summary.daGeQuotaInfo.actualShouldPay).toLocaleString()}</span>
+                                                                            {" "}/ 已付 ${Math.round(s.paid).toLocaleString()}
+                                                                            <br/>
+                                                                            <span className="text-yellow-300">
+                                                                                💰 本期扣打剩餘 ${Math.round(currentRecord.summary.daGeQuotaInfo.quotaRemaining).toLocaleString()} 
+                                                                                {" "}→ 下期扣打 ${Math.round(currentRecord.summary.daGeQuotaInfo.nextMonthQuota).toLocaleString()}
+                                                                            </span>
+                                                                        </>
+                                                                    ) : prevBal !== 0 ? (
                                                                         <>
                                                                             當期應付 ${Math.round(s.currentPeriodShouldPay || s.shouldPay).toLocaleString()} | 已付 ${Math.round(s.paid).toLocaleString()}
                                                                             <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
