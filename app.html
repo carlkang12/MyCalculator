@@ -435,9 +435,9 @@
                 }
 
                 // 將上期餘額加入計算（上期多付的人本期應付金額減少，上期少付的人本期應付金額增加）
+                // ⚠️ 無論是否公平分攤，上期餘額都要計入（上期欠的債要還）
                 members.forEach(m => {
-                    if (stats[m] && prevBalance[m] && !enableFairSplit) {
-                        // 公平分攤模式下不套用上期餘額
+                    if (stats[m] && prevBalance[m]) {
                         // prevBalance[m] > 0 表示上期多付，本期應付減少
                         // prevBalance[m] < 0 表示上期少付，本期應付增加
                         stats[m].shouldPay -= prevBalance[m];
