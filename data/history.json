@@ -12,21 +12,60 @@
       "details": {
         "二哥": {
           "paid": 16853,
-          "shouldPay": 11621.583333333334
+          "shouldPay": 11621.583333333334,
+          "currentPeriodShouldPay": 11621.583333333334,
+          "previousBalance": 0
         },
         "大哥": {
           "paid": 17500,
-          "shouldPay": 11621.583333333334
+          "shouldPay": 11621.583333333334,
+          "currentPeriodShouldPay": 11621.583333333334,
+          "previousBalance": 0
         },
         "三弟": {
           "paid": 15512,
-          "shouldPay": 11621.583333333334
-        },
-        "倩瑜": {
-          "paid": 1088,
-          "shouldPay": 1088.25
+          "shouldPay": 11621.583333333334,
+          "currentPeriodShouldPay": 11621.583333333334,
+          "previousBalance": 0
         }
-      }
+      },
+      "transfers": [
+        {
+          "from": "三弟",
+          "to": "大哥",
+          "amount": 878
+        },
+        {
+          "from": "三弟",
+          "to": "二哥",
+          "amount": 231
+        }
+      ],
+      "transferType": "all_overpaid",
+      "totalOverpaid": 15000.249999999998,
+      "totalUnderpaid": 0,
+      "averageBalance": 5000.083333333333,
+      "balanceDetails": [
+        {
+          "member": "大哥",
+          "original": 5878.416666666666,
+          "shouldBe": 5000.083333333333,
+          "adjustment": 0
+        },
+        {
+          "member": "二哥",
+          "original": 5231.416666666666,
+          "shouldBe": 5000.083333333333,
+          "adjustment": 0
+        },
+        {
+          "member": "三弟",
+          "original": 3890.416666666666,
+          "shouldBe": 5000.083333333333,
+          "adjustment": -9.094947017729282e-13
+        }
+      ],
+      "isFairSplit": false
     },
     "rawExpenses": [
       {

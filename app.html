@@ -200,6 +200,12 @@
                 return saved ? JSON.parse(saved) : true; // 預設開啟
             });
 
+            // 公平分攤模式開關（新功能）
+            const [useFairSplit, setUseFairSplit] = useState(() => {
+                const saved = localStorage.getItem('useFairSplit');
+                return saved ? JSON.parse(saved) : false; // 預設關閉
+            });
+
             // 計算上期餘額（從最新的歷史記錄中取得）
             const previousBalance = useMemo(() => {
                 if (history.length === 0) return {};
@@ -229,6 +235,10 @@
             }, [applyPreviousBalance]);
             
             useEffect(() => {
+                localStorage.setItem('useFairSplit', JSON.stringify(useFairSplit));
+            }, [useFairSplit]);
+            
+            useEffect(() => {
                 // 將歷史紀錄儲存到檔案
                 saveHistoryToFile(history);
             }, [history]);
@@ -248,7 +258,115 @@
                 }
             };
 
-            const calculateResults = (expenseList, prevBalance = {}) => {
+            // 債務優化算法：計算最少轉帳次數的清算方案
+            const optimizeTransfers = (stats) => {
+                // 1. 計算每個人的淨餘額（正數=債權人，負數=債務人）
+                const balances = [];
+                Object.keys(stats).forEach(member => {
+                    const net = stats[member].paid - stats[member].shouldPay;
+                    if (Math.abs(net) > 0.01) { // 忽略小於1分的誤差
+                        balances.push({ member, net });
+                    }
+                });
+
+                // 2. 分離債權人和債務人
+                const creditors = balances.filter(b => b.net > 0).sort((a, b) => b.net - a.net);
+                const debtors = balances.filter(b => b.net < 0).sort((a, b) => a.net - b.net);
+
+                // 3. 特殊情況處理
+                const result = {
+                    transfers: [],
+                    type: 'normal', // normal, all_overpaid, all_underpaid
+                    totalOverpaid: 0,
+                    totalUnderpaid: 0,
+                    averageBalance: 0,
+                    balanceDetails: [] // 用於顯示每個人相對於平均值的差異
+                };
+
+                // 計算總多付和總少付
+                result.totalOverpaid = creditors.reduce((sum, c) => sum + c.net, 0);
+                result.totalUnderpaid = Math.abs(debtors.reduce((sum, d) => sum + d.net, 0));
+
+                // 檢查特殊情況：所有人都多付了
+                if (debtors.length === 0 && creditors.length > 0) {
+                    result.type = 'all_overpaid';
+                    
+                    // 計算平均每人應該多付多少（公平分攤）
+                    const totalMembers = creditors.length;
+                    result.averageBalance = result.totalOverpaid / totalMembers;
+                    
+                    // 計算每個人相對於平均值的差異
+                    const adjustedBalances = creditors.map(c => ({
+                        member: c.member,
+                        original: c.net, // 原始多付金額
+                        shouldBe: result.averageBalance, // 應該多付的金額（平均值）
+                        adjustment: c.net - result.averageBalance // 需要調整的金額（正=退還，負=補足）
+                    }));
+                    
+                    result.balanceDetails = adjustedBalances;
+                    
+                    // 計算相互抵銷的轉帳方案
+                    // 將需要退款的人（多付超過平均）和需要補款的人（多付低於平均）配對
+                    const needRefund = adjustedBalances.filter(b => b.adjustment > 0.01).sort((a, b) => b.adjustment - a.adjustment);
+                    const needPay = adjustedBalances.filter(b => b.adjustment < -0.01).sort((a, b) => a.adjustment - b.adjustment);
+                    
+                    let i = 0, j = 0;
+                    while (i < needRefund.length && j < needPay.length) {
+                        const refunder = needRefund[i]; // 需要拿回錢的人
+                        const payer = needPay[j]; // 需要補錢的人
+                        const amount = Math.min(refunder.adjustment, Math.abs(payer.adjustment));
+                        
+                        if (amount > 0.01) {
+                            result.transfers.push({
+                                from: payer.member,
+                                to: refunder.member,
+                                amount: Math.round(amount)
+                            });
+                        }
+                        
+                        refunder.adjustment -= amount;
+                        payer.adjustment += amount;
+                        
+                        if (refunder.adjustment < 0.01) i++;
+                        if (Math.abs(payer.adjustment) < 0.01) j++;
+                    }
+                    
+                    return result;
+                }
+                
+                // 檢查特殊情況：所有人都少付了
+                if (creditors.length === 0 && debtors.length > 0) {
+                    result.type = 'all_underpaid';
+                    return result;
+                }
+
+                // 4. 計算最優轉帳方案（正常情況）
+                let i = 0, j = 0;
+                
+                while (i < creditors.length && j < debtors.length) {
+                    const creditor = creditors[i];
+                    const debtor = debtors[j];
+                    const amount = Math.min(creditor.net, Math.abs(debtor.net));
+                    
+                    if (amount > 0.01) {
+                        result.transfers.push({
+                            from: debtor.member,
+                            to: creditor.member,
+                            amount: Math.round(amount)
+                        });
+                    }
+                    
+                    creditor.net -= amount;
+                    debtor.net += amount;
+                    
+                    if (creditor.net < 0.01) i++;
+                    if (Math.abs(debtor.net) < 0.01) j++;
+                }
+
+                return result;
+            };
+
+            const calculateResults = (expenseList, prevBalance = {}, enableFairSplit = false) => {
                 const stats = {};
                 members.forEach(m => stats[m] = { 
                     paid: 0, 
@@ -285,9 +403,31 @@
                     }
                 });
 
+                // 🆕 公平分攤模式：重新計算每個人的應付金額
+                if (enableFairSplit) {
+                    // 計算總應付金額（不包含上期餘額）
+                    let totalShouldPay = 0;
+                    members.forEach(m => {
+                        totalShouldPay += stats[m].currentPeriodShouldPay;
+                    });
+                    
+                    // 平均分配給每個成員
+                    const averageShouldPay = totalShouldPay / members.length;
+                    
+                    // 更新每個人的應付金額為平均值
+                    members.forEach(m => {
+                        if (stats[m]) {
+                            stats[m].originalShouldPay = stats[m].currentPeriodShouldPay; // 保存原始應付
+                            stats[m].currentPeriodShouldPay = averageShouldPay; // 更新為平均值
+                            stats[m].shouldPay = averageShouldPay; // 更新應付金額
+                        }
+                    });
+                }
+
                 // 將上期餘額加入計算（上期多付的人本期應付金額減少，上期少付的人本期應付金額增加）
                 members.forEach(m => {
-                    if (stats[m] && prevBalance[m]) {
+                    if (stats[m] && prevBalance[m] && !enableFairSplit) {
+                        // 公平分攤模式下不套用上期餘額
                         // prevBalance[m] > 0 表示上期多付，本期應付減少
                         // prevBalance[m] < 0 表示上期少付，本期應付增加
                         stats[m].shouldPay -= prevBalance[m];
@@ -302,17 +442,27 @@
                     }
                 });
 
+                // 計算優化後的轉帳方案
+                const transfersResult = optimizeTransfers(stats);
+
                 return { 
                     totalPool,
                     totalPaid: stats['二哥'] ? stats['二哥'].paid : 0,
                     ergeShouldPay: stats['二哥'] ? stats['二哥'].shouldPay : 0,
                     finalBalance: stats['二哥'] ? (stats['二哥'].paid - stats['二哥'].shouldPay) : 0, 
                     publicFund,
-                    details: stats 
+                    details: stats,
+                    transfers: transfersResult.transfers, // 轉帳方案
+                    transferType: transfersResult.type, // 轉帳類型
+                    totalOverpaid: transfersResult.totalOverpaid, // 總多付金額
+                    totalUnderpaid: transfersResult.totalUnderpaid, // 總少付金額
+                    averageBalance: transfersResult.averageBalance, // 平均每人應多付金額
+                    balanceDetails: transfersResult.balanceDetails, // 每個人的調整明細
+                    isFairSplit: enableFairSplit // 標記是否使用公平分攤模式
                 };
             };
 
-            const summary = useMemo(() => calculateResults(expenses, applyPreviousBalance ? previousBalance : {}), [expenses, members, previousBalance, applyPreviousBalance]);
+            const summary = useMemo(() => calculateResults(expenses, applyPreviousBalance ? previousBalance : {}, useFairSplit), [expenses, members, previousBalance, applyPreviousBalance, useFairSplit]);
 
             // 獲取某個歷史記錄對應的上期餘額
             const getPreviousBalanceForRecord = (recordId) => {
@@ -713,6 +863,60 @@
                                             </div>
                                         )}
 
+                                        {/* 🆕 公平分攤模式開關 */}
+                                        <div className="mb-6">
+                                            <button 
+                                                onClick={() => setUseFairSplit(!useFairSplit)}
+                                                className={`w-full p-4 rounded-2xl border-2 transition-all ${
+                                                    useFairSplit 
+                                                        ? 'bg-emerald-500/20 border-emerald-400/50 hover:bg-emerald-500/30' 
+                                                        : 'bg-slate-800/50 border-slate-700/50 hover:bg-slate-800/70'
+                                                }`}
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div className="flex items-center gap-3">
+                                                        <div className={`w-12 h-6 rounded-full relative transition-all ${
+                                                            useFairSplit ? 'bg-emerald-500' : 'bg-slate-600'
+                                                        }`}>
+                                                            <div className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
+                                                                useFairSplit ? 'translate-x-7' : 'translate-x-1'
+                                                            }`}></div>
+                                                        </div>
+                                                        <div className="text-left">
+                                                            <p className="text-sm font-bold text-white">公平分攤模式</p>
+                                                            <p className="text-[10px] text-white/60 font-medium">
+                                                                {useFairSplit ? '已開啟：所有費用平均分攤' : '已關閉：依實際分攤人數計算'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <div className={`px-3 py-1 rounded-lg text-[10px] font-black uppercase ${
+                                                        useFairSplit ? 'bg-emerald-400/20 text-emerald-300' : 'bg-slate-700 text-slate-400'
+                                                    }`}>
+                                                        {useFairSplit ? 'ON' : 'OFF'}
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        </div>
+
+                                        {/* 公平分攤提示 */}
+                                        {useFairSplit && (
+                                            <div className="mb-6 bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border border-emerald-400/30 rounded-2xl p-4">
+                                                <div className="flex items-start gap-3">
+                                                    <div className="p-2 bg-emerald-500/20 rounded-lg">
+                                                        <SimpleIcon name="info" size={16} className="text-emerald-400" />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-[11px] font-black text-emerald-300 uppercase tracking-wider mb-2">公平分攤已啟用</p>
+                                                        <div className="space-y-1 text-[10px] text-white/80 font-medium">
+                                                            <p>✨ 所有費用將平均分攤給 {members.length} 位成員</p>
+                                                            <p>💰 每人應付：${Math.round(summary.totalPool / members.length).toLocaleString()}</p>
+                                                            <p>🔄 轉帳方案已重新計算，達到完全公平</p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
                                         <div className="space-y-6">
                                             <div className="grid grid-cols-2 gap-4">
                                                 <div className="glass-card p-4 rounded-2xl">
@@ -756,6 +960,231 @@
                                                 </div>
                                                 <SimpleIcon name="wallet" size={80} className="absolute -bottom-4 -right-4 text-white/10 rotate-12" />
                                             </div>
+
+                                            {/* 優化轉帳建議 - 移到明細上方 */}
+                                            {summary.transfers && summary.transfers.length > 0 && !useFairSplit && summary.transferType === 'normal' && (
+                                                <div className="space-y-3 pt-6 border-t border-white/10">
+                                                    <div className="flex items-center gap-2 px-1">
+                                                        <SimpleIcon name="chevronRight" size={16} className="text-emerald-400" />
+                                                        <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">💰 最優轉帳方案</p>
+                                                    </div>
+                                                    <div className="bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-400/30 rounded-2xl p-4 space-y-2">
+                                                        <div className="flex items-start gap-2 mb-3">
+                                                            <div className="p-1.5 bg-emerald-500/20 rounded-lg">
+                                                                <SimpleIcon name="info" size={14} className="text-emerald-400" />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <p className="text-[10px] font-black text-emerald-300 uppercase mb-0.5">智能債務清算</p>
+                                                                <p className="text-[9px] text-white/70 font-medium">已優化轉帳次數，只需 {summary.transfers.length} 筆轉帳即可結清！</p>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {summary.transfers.map((transfer, idx) => (
+                                                            <div key={idx} className="flex items-center justify-between gap-3 bg-slate-800/40 p-3 rounded-xl border border-white/10">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-xs font-black text-white/60">#{idx + 1}</span>
+                                                                    <div className="bg-rose-500/20 text-rose-300 px-2 py-1 rounded-lg text-xs font-black">
+                                                                        {transfer.from}
+                                                                    </div>
+                                                                    <SimpleIcon name="chevronRight" size={14} className="text-white/30" />
+                                                                    <div className="bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-lg text-xs font-black">
+                                                                        {transfer.to}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="text-lg font-black font-mono text-amber-400">
+                                                                        ${transfer.amount.toLocaleString()}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        
+                                                        <div className="bg-white/5 p-3 rounded-xl mt-2">
+                                                            <p className="text-[9px] text-white/70 font-medium text-center">
+                                                                💡 <span className="text-emerald-300 font-bold">少付的人</span> 轉給 <span className="text-amber-300 font-bold">多付的人</span>，按照上面金額轉帳即可！
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* 🆕 公平分攤模式的轉帳方案 */}
+                                            {useFairSplit && summary.transfers && summary.transfers.length > 0 && (
+                                                <div className="space-y-3 pt-6 border-t border-white/10">
+                                                    <div className="flex items-center gap-2 px-1">
+                                                        <SimpleIcon name="wallet" size={16} className="text-emerald-400" />
+                                                        <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">💰 公平分攤轉帳方案</p>
+                                                    </div>
+                                                    <div className="bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-400/30 rounded-2xl p-4 space-y-2">
+                                                        <div className="flex items-start gap-2 mb-3">
+                                                            <div className="p-1.5 bg-emerald-500/20 rounded-lg">
+                                                                <SimpleIcon name="info" size={14} className="text-emerald-400" />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <p className="text-[10px] font-black text-emerald-300 uppercase mb-0.5">公平分攤計算</p>
+                                                                <p className="text-[9px] text-white/70 font-medium">
+                                                                    費用已平均分配，每人應付 ${Math.round(summary.totalPool / members.length).toLocaleString()}，共需 {summary.transfers.length} 筆轉帳
+                                                                </p>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {summary.transfers.map((transfer, idx) => (
+                                                            <div key={idx} className="flex items-center justify-between gap-3 bg-slate-800/40 p-3 rounded-xl border border-white/10">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-xs font-black text-white/60">#{idx + 1}</span>
+                                                                    <div className="bg-rose-500/20 text-rose-300 px-2 py-1 rounded-lg text-xs font-black">
+                                                                        {transfer.from}
+                                                                    </div>
+                                                                    <SimpleIcon name="chevronRight" size={14} className="text-white/30" />
+                                                                    <div className="bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-lg text-xs font-black">
+                                                                        {transfer.to}
+                                                                    </div>
+                                                                </div>
+                                                                <div className="text-right">
+                                                                    <p className="text-lg font-black font-mono text-amber-400">
+                                                                        ${transfer.amount.toLocaleString()}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                        
+                                                        <div className="bg-white/5 p-3 rounded-xl mt-2">
+                                                            <p className="text-[9px] text-white/70 font-medium text-center">
+                                                                ✨ 完成轉帳後，每個人都支付 <span className="text-emerald-300 font-black">${Math.round(summary.totalPool / members.length).toLocaleString()}</span>，達到完全公平！
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* 所有人都多付的情況 */}
+                                            {!useFairSplit && summary.transferType === 'all_overpaid' && (
+                                                <div className="space-y-3 pt-6 border-t border-white/10">
+                                                    <div className="flex items-center gap-2 px-1">
+                                                        <SimpleIcon name="wallet" size={16} className="text-amber-400" />
+                                                        <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">� 公平分攤計算</p>
+                                                    </div>
+                                                    <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-400/30 rounded-2xl p-4 space-y-3">
+                                                        <div className="flex items-start gap-2">
+                                                            <div className="p-1.5 bg-amber-500/20 rounded-lg">
+                                                                <SimpleIcon name="info" size={14} className="text-amber-400" />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <p className="text-[10px] font-black text-amber-300 uppercase mb-0.5">所有人都多付了</p>
+                                                                <p className="text-[9px] text-white/70 font-medium">總計多付 ${Math.round(summary.totalOverpaid).toLocaleString()}，已自動計算公平分攤方案</p>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* 平均值說明 */}
+                                                        <div className="bg-white/10 p-3 rounded-xl border border-white/20">
+                                                            <p className="text-[9px] text-white/60 font-bold mb-1">📊 公平分攤基準</p>
+                                                            <div className="flex items-baseline gap-2">
+                                                                <p className="text-2xl font-black font-mono text-white">${Math.round(summary.averageBalance).toLocaleString()}</p>
+                                                                <p className="text-[9px] text-white/60 font-medium">每人平均多付金額</p>
+                                                            </div>
+                                                            <p className="text-[8px] text-white/50 font-medium mt-1">
+                                                                讓每個人最終都多付相同金額，達到最公平的狀態
+                                                            </p>
+                                                        </div>
+
+                                                        {/* 調整明細 */}
+                                                        <div className="bg-slate-800/40 p-3 rounded-xl border border-white/10 space-y-2">
+                                                            <p className="text-[9px] text-white/60 font-bold mb-2">各成員調整明細：</p>
+                                                            {summary.balanceDetails && summary.balanceDetails.map(detail => {
+                                                                const needAdjust = Math.abs(detail.adjustment) > 0.01;
+                                                                const isRefund = detail.adjustment > 0;
+                                                                return (
+                                                                    <div key={detail.member} className="flex justify-between items-center py-1.5 border-b border-white/5 last:border-0">
+                                                                        <div>
+                                                                            <span className="text-xs text-white font-bold">{detail.member}</span>
+                                                                            <p className="text-[8px] text-white/50 font-medium">
+                                                                                原本多付 ${Math.round(detail.original).toLocaleString()}
+                                                                            </p>
+                                                                        </div>
+                                                                        <div className="text-right">
+                                                                            {needAdjust ? (
+                                                                                <>
+                                                                                    <p className={`text-xs font-black font-mono ${isRefund ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                                                        {isRefund ? '退' : '補'} ${Math.round(Math.abs(detail.adjustment)).toLocaleString()}
+                                                                                    </p>
+                                                                                    <p className="text-[8px] text-white/50 font-medium">
+                                                                                        {isRefund ? '可拿回' : '需補足'}
+                                                                                    </p>
+                                                                                </>
+                                                                            ) : (
+                                                                                <p className="text-xs font-bold text-white/60">剛好平衡</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+
+                                                        {/* 轉帳方案 */}
+                                                        {summary.transfers && summary.transfers.length > 0 && (
+                                                            <div className="space-y-2">
+                                                                <p className="text-[9px] text-white/60 font-bold">💸 執行方案（{summary.transfers.length} 筆轉帳）：</p>
+                                                                {summary.transfers.map((transfer, idx) => (
+                                                                    <div key={idx} className="flex items-center justify-between gap-3 bg-slate-800/60 p-3 rounded-xl border border-white/10">
+                                                                        <div className="flex items-center gap-2">
+                                                                            <span className="text-xs font-black text-white/40">#{idx + 1}</span>
+                                                                            <div className="bg-rose-500/20 text-rose-300 px-2 py-1 rounded-lg text-xs font-black">
+                                                                                {transfer.from}
+                                                                            </div>
+                                                                            <SimpleIcon name="chevronRight" size={14} className="text-white/30" />
+                                                                            <div className="bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded-lg text-xs font-black">
+                                                                                {transfer.to}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-right">
+                                                                            <p className="text-base font-black font-mono text-amber-400">
+                                                                                ${transfer.amount.toLocaleString()}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                        )}
+
+                                                        {/* 結算後說明 */}
+                                                        <div className="bg-white/5 p-3 rounded-xl">
+                                                            <p className="text-[9px] text-white/70 font-medium text-center">
+                                                                ✨ 完成轉帳後，每個人都會多付 <span className="text-amber-300 font-black">${Math.round(summary.averageBalance).toLocaleString()}</span>，達到完全公平！
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* 所有人都少付的情況 */}
+                                            {!useFairSplit && summary.transferType === 'all_underpaid' && (
+                                                <div className="space-y-3 pt-6 border-t border-white/10">
+                                                    <div className="flex items-center gap-2 px-1">
+                                                        <SimpleIcon name="info" size={16} className="text-rose-400" />
+                                                        <p className="text-[10px] font-black text-white/40 uppercase tracking-[0.2em]">⚠️ 警告訊息</p>
+                                                    </div>
+                                                    <div className="bg-gradient-to-br from-rose-500/20 to-red-500/20 border border-rose-400/30 rounded-2xl p-4 space-y-3">
+                                                        <div className="flex items-start gap-2">
+                                                            <div className="p-1.5 bg-rose-500/20 rounded-lg">
+                                                                <SimpleIcon name="x" size={14} className="text-rose-400" />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <p className="text-[10px] font-black text-rose-300 uppercase mb-0.5">所有人都少付了</p>
+                                                                <p className="text-[9px] text-white/70 font-medium">總共短缺 ${Math.round(summary.totalUnderpaid).toLocaleString()}，需要補足款項</p>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        <div className="bg-white/5 p-4 rounded-xl">
+                                                            <p className="text-xs text-rose-300 font-bold mb-2">⚠️ 可能原因：</p>
+                                                            <div className="space-y-1 text-[10px] text-white/80 font-medium">
+                                                                <p>• 有些支出項目沒有人支付</p>
+                                                                <p>• 分攤人數設定錯誤</p>
+                                                                <p>• 金額輸入有誤</p>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
 
                                             <div className="space-y-3 pt-6 border-t border-white/10">
                                                 <div className="flex justify-between items-center px-1">
@@ -802,7 +1231,21 @@
                                                             <div>
                                                                 <p className="text-sm font-bold text-white">{m}</p>
                                                                 <p className="text-[9px] text-white/60 font-bold">
-                                                                    {applyPreviousBalance && prevBal !== 0 ? (
+                                                                    {useFairSplit ? (
+                                                                        // 公平分攤模式顯示
+                                                                        <>
+                                                                            {s.originalShouldPay ? (
+                                                                                <>
+                                                                                    原應付 ${Math.round(s.originalShouldPay).toLocaleString()} 
+                                                                                    <span className="text-emerald-300"> → 公平分攤 ${Math.round(s.shouldPay).toLocaleString()}</span>
+                                                                                    {" "}/ 已付 ${Math.round(s.paid).toLocaleString()}
+                                                                                </>
+                                                                            ) : (
+                                                                                <>應付 ${Math.round(s.shouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}</>
+                                                                            )}
+                                                                        </>
+                                                                    ) : applyPreviousBalance && prevBal !== 0 ? (
+                                                                        // 上期餘額模式顯示
                                                                         <>
                                                                             當期應付 ${Math.round(s.currentPeriodShouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}
                                                                             <span className={prevBal > 0 ? "text-amber-300" : "text-rose-300"}>
@@ -813,6 +1256,7 @@
                                                                             </span>
                                                                         </>
                                                                     ) : (
+                                                                        // 一般模式顯示
                                                                         <>應付 ${Math.round(s.shouldPay).toLocaleString()} / 已付 ${Math.round(s.paid).toLocaleString()}</>
                                                                     )}
                                                                 </p>
@@ -1089,6 +1533,130 @@
                                                     })()}
                                                 </div>
                                             </div>
+                                            
+                                            {/* 優化轉帳建議（歷史記錄） */}
+                                            {(() => {
+                                                const prevBalance = getPreviousBalanceForRecord(viewingRecord.id);
+                                                const currentRecord = isEditMode ? { ...editingRecord, summary: calculateResults(editingRecord.rawExpenses, prevBalance) } : viewingRecord;
+                                                const transfers = currentRecord.summary.transfers || [];
+                                                const transferType = currentRecord.summary.transferType || 'normal';
+                                                
+                                                // 正常轉帳建議
+                                                if (transfers.length > 0 && transferType === 'normal') {
+                                                    return (
+                                                        <div className="bg-gradient-to-br from-emerald-500/20 to-teal-500/20 border border-emerald-400/30 rounded-2xl p-5 space-y-3">
+                                                            <div className="flex items-start gap-2">
+                                                                <div className="p-2 bg-emerald-500/20 rounded-lg">
+                                                                    <SimpleIcon name="chevronRight" size={16} className="text-emerald-400" />
+                                                                </div>
+                                                                <div className="flex-1">
+                                                                    <p className="text-xs font-black text-emerald-700 uppercase mb-1">最優轉帳方案</p>
+                                                                    <p className="text-[10px] text-slate-600 font-medium">共需 {transfers.length} 筆轉帳即可完成結算</p>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            <div className="space-y-2">
+                                                                {transfers.map((transfer, idx) => (
+                                                                    <div key={idx} className="flex items-center gap-3 bg-white/80 p-3 rounded-xl border border-emerald-200/50">
+                                                                        <div className="flex-1 flex items-center gap-2">
+                                                                            <div className="bg-rose-100 text-rose-700 px-3 py-1 rounded-lg text-xs font-black">
+                                                                                {transfer.from}
+                                                                            </div>
+                                                                            <SimpleIcon name="chevronRight" size={14} className="text-slate-400" />
+                                                                            <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-xs font-black">
+                                                                                {transfer.to}
+                                                                            </div>
+                                                                        </div>
+                                                                        <div className="text-right">
+                                                                            <p className="text-base font-black font-mono text-amber-600">
+                                                                                ${transfer.amount.toLocaleString()}
+                                                                            </p>
+                                                                        </div>
+                                                                    </div>
+                                                                ))}
+                                                            </div>
+                                                            
+                                                            <p className="text-[9px] text-slate-500 font-medium text-center pt-1">
+                                                                💡 按照以上方案轉帳，即可完成結算
+                                                            </p>
+                                                        </div>
+                                                    );
+                                                }
+                                                
+                                                // 所有人都多付
+                                                if (transferType === 'all_overpaid') {
+                                                    return (
+                                                        <div className="bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-400/30 rounded-2xl p-5 space-y-3">
+                                                            <div className="flex items-start gap-2">
+                                                                <div className="p-2 bg-amber-500/20 rounded-lg">
+                                                                    <SimpleIcon name="wallet" size={16} className="text-amber-600" />
+                                                                </div>
+                                                                <div className="flex-1">
+                                                                    <p className="text-xs font-black text-amber-700 uppercase mb-1">公平分攤計算</p>
+                                                                    <p className="text-[10px] text-slate-600 font-medium">總計多付 ${Math.round(currentRecord.summary.totalOverpaid || 0).toLocaleString()}，已自動平均分攤</p>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {/* 平均值 */}
+                                                            <div className="bg-white/80 p-3 rounded-xl border border-amber-200/50">
+                                                                <p className="text-[9px] text-slate-500 font-bold mb-1">每人平均多付</p>
+                                                                <p className="text-xl font-black font-mono text-amber-700">${Math.round(currentRecord.summary.averageBalance || 0).toLocaleString()}</p>
+                                                            </div>
+
+                                                            {/* 轉帳方案 */}
+                                                            {transfers.length > 0 && (
+                                                                <div className="space-y-2">
+                                                                    <p className="text-[9px] text-slate-600 font-bold">轉帳方案（{transfers.length} 筆）：</p>
+                                                                    {transfers.map((transfer, idx) => (
+                                                                        <div key={idx} className="flex items-center gap-3 bg-white/80 p-3 rounded-xl border border-amber-200/50">
+                                                                            <div className="flex-1 flex items-center gap-2">
+                                                                                <div className="bg-rose-100 text-rose-700 px-3 py-1 rounded-lg text-xs font-black">
+                                                                                    {transfer.from}
+                                                                                </div>
+                                                                                <SimpleIcon name="chevronRight" size={14} className="text-slate-400" />
+                                                                                <div className="bg-emerald-100 text-emerald-700 px-3 py-1 rounded-lg text-xs font-black">
+                                                                                    {transfer.to}
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="text-right">
+                                                                                <p className="text-base font-black font-mono text-amber-600">
+                                                                                    ${transfer.amount.toLocaleString()}
+                                                                                </p>
+                                                                            </div>
+                                                                        </div>
+                                                                    ))}
+                                                                </div>
+                                                            )}
+                                                            
+                                                            <div className="bg-white/80 p-3 rounded-xl text-[10px] text-slate-600 font-medium">
+                                                                ✨ 完成轉帳後，每個人都多付 ${Math.round(currentRecord.summary.averageBalance || 0).toLocaleString()}，達到完全公平
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                
+                                                // 所有人都少付
+                                                if (transferType === 'all_underpaid') {
+                                                    return (
+                                                        <div className="bg-gradient-to-br from-rose-500/20 to-red-500/20 border border-rose-400/30 rounded-2xl p-5 space-y-3">
+                                                            <div className="flex items-start gap-2">
+                                                                <div className="p-2 bg-rose-500/20 rounded-lg">
+                                                                    <SimpleIcon name="x" size={16} className="text-rose-600" />
+                                                                </div>
+                                                                <div className="flex-1">
+                                                                    <p className="text-xs font-black text-rose-700 uppercase mb-1">所有人都少付了</p>
+                                                                    <p className="text-[10px] text-slate-600 font-medium">總共短缺 ${Math.round(currentRecord.summary.totalUnderpaid || 0).toLocaleString()}</p>
+                                                                </div>
+                                                            </div>
+                                                            <div className="bg-white/80 p-3 rounded-xl text-[10px] text-slate-600 font-medium">
+                                                                ⚠️ 請檢查支出項目是否有遺漏或設定錯誤
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                }
+                                                
+                                                return null;
+                                            })()}
                                         </div>
                                     </div>
                                 </div>
