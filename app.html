@@ -111,6 +111,86 @@
             console.log('無法儲存歷史紀錄，dataPath 或 fs 不可用');
             return false;
         };
+        
+        // === 新增：當前資料檔案管理 (成員、帳目) ===
+        const getCurrentDataPath = () => {
+            const dataPath = getDataPath();
+            if (dataPath && path) {
+                return path.join(path.dirname(dataPath), 'current.json');
+            }
+            return null;
+        };
+        
+        const loadCurrentData = () => {
+            const currentPath = getCurrentDataPath();
+            if (currentPath && fs && fs.existsSync(currentPath)) {
+                try {
+                    console.log('載入當前資料從:', currentPath);
+                    const data = fs.readFileSync(currentPath, 'utf-8');
+                    return JSON.parse(data);
+                } catch (e) {
+                    console.error('讀取當前資料失敗:', e);
+                    return null;
+                }
+            }
+            return null;
+        };
+        
+        const saveCurrentData = (currentData) => {
+            const currentPath = getCurrentDataPath();
+            if (currentPath && fs) {
+                try {
+                    console.log('儲存當前資料到:', currentPath);
+                    fs.writeFileSync(currentPath, JSON.stringify(currentData, null, 2), 'utf-8');
+                    console.log('當前資料儲存成功');
+                    return true;
+                } catch (e) {
+                    console.error('儲存當前資料失敗:', e);
+                    return false;
+                }
+            }
+            return false;
+        };
+        
+        // === 新增：設定檔案管理 (上期餘額開關、公平分攤、大哥額度) ===
+        const getSettingsPath = () => {
+            const dataPath = getDataPath();
+            if (dataPath && path) {
+                return path.join(path.dirname(dataPath), 'settings.json');
+            }
+            return null;
+        };
+        
+        const loadSettings = () => {
+            const settingsPath = getSettingsPath();
+            if (settingsPath && fs && fs.existsSync(settingsPath)) {
+                try {
+                    console.log('載入設定從:', settingsPath);
+                    const data = fs.readFileSync(settingsPath, 'utf-8');
+                    return JSON.parse(data);
+                } catch (e) {
+                    console.error('讀取設定失敗:', e);
+                    return null;
+                }
+            }
+            return null;
+        };
+        
+        const saveSettings = (settingsData) => {
+            const settingsPath = getSettingsPath();
+            if (settingsPath && fs) {
+                try {
+                    console.log('儲存設定到:', settingsPath);
+                    fs.writeFileSync(settingsPath, JSON.stringify(settingsData, null, 2), 'utf-8');
+                    console.log('設定儲存成功');
+                    return true;
+                } catch (e) {
+                    console.error('儲存設定失敗:', e);
+                    return false;
+                }
+            }
+            return false;
+        };
 
         const SimpleIcon = ({ name, size = 20, className = "" }) => {
             const icons = {
@@ -148,15 +228,37 @@
         const App = () => {
             const [activeTab, setActiveTab] = useState('current');
             const [members, setMembers] = useState(() => {
+                // 優先從檔案讀取，若檔案不存在則從 localStorage 遷移
+                const fileData = loadCurrentData();
+                if (fileData && fileData.members) {
+                    return fileData.members;
+                }
+                // 遷移舊資料
                 const saved = localStorage.getItem('members_v2');
-                return saved ? JSON.parse(saved) : ['二哥', '大哥', '三弟', '倩瑜'];
+                if (saved) {
+                    const oldData = JSON.parse(saved);
+                    localStorage.removeItem('members_v2');
+                    return oldData;
+                }
+                return ['二哥', '大哥', '三弟', '倩瑜'];
             });
             const [isMemberModalOpen, setIsMemberModalOpen] = useState(false);
             const [newMemberName, setNewMemberName] = useState('');
             
             const [expenses, setExpenses] = useState(() => {
+                // 優先從檔案讀取，若檔案不存在則從 localStorage 遷移
+                const fileData = loadCurrentData();
+                if (fileData && fileData.expenses) {
+                    return fileData.expenses;
+                }
+                // 遷移舊資料
                 const saved = localStorage.getItem('expenses_v8');
-                return saved ? JSON.parse(saved) : [];
+                if (saved) {
+                    const oldData = JSON.parse(saved);
+                    localStorage.removeItem('expenses_v8');
+                    return oldData;
+                }
+                return [];
             });
             
             const [history, setHistory] = useState(() => {
@@ -183,20 +285,53 @@
             
             // 上期餘額開關（可選功能）
             const [applyPreviousBalance, setApplyPreviousBalance] = useState(() => {
+                // 優先從檔案讀取
+                const fileData = loadSettings();
+                if (fileData && fileData.applyPreviousBalance !== undefined) {
+                    return fileData.applyPreviousBalance;
+                }
+                // 遷移舊資料
                 const saved = localStorage.getItem('applyPreviousBalance');
-                return saved ? JSON.parse(saved) : true; // 預設開啟
+                if (saved) {
+                    const oldData = JSON.parse(saved);
+                    localStorage.removeItem('applyPreviousBalance');
+                    return oldData;
+                }
+                return true; // 預設開啟
             });
 
             // 公平分攤模式開關（新功能）
             const [useFairSplit, setUseFairSplit] = useState(() => {
+                // 優先從檔案讀取
+                const fileData = loadSettings();
+                if (fileData && fileData.useFairSplit !== undefined) {
+                    return fileData.useFairSplit;
+                }
+                // 遷移舊資料
                 const saved = localStorage.getItem('useFairSplit');
-                return saved ? JSON.parse(saved) : false; // 預設關閉
+                if (saved) {
+                    const oldData = JSON.parse(saved);
+                    localStorage.removeItem('useFairSplit');
+                    return oldData;
+                }
+                return false; // 預設關閉
             });
 
             // 大哥扣打額度（每月1萬，會累加）// 2月開始有1萬，3月累加到2萬
             const [daGeQuota, setDaGeQuota] = useState(() => {
+                // 優先從檔案讀取
+                const fileData = loadSettings();
+                if (fileData && fileData.daGeQuota !== undefined) {
+                    return fileData.daGeQuota;
+                }
+                // 遷移舊資料
                 const saved = localStorage.getItem('daGeQuota');
-                return saved ? JSON.parse(saved) : 20000; // 2026年3月預設2萬（2月1萬+3月1萬）
+                if (saved) {
+                    const oldData = JSON.parse(saved);
+                    localStorage.removeItem('daGeQuota');
+                    return oldData;
+                }
+                return 20000; // 2026年3月預設2萬（2月1萬+3月1萬）
             });
             
             // 调整额度的输入状态
@@ -219,25 +354,19 @@
                 return balance;
             }, [history]);
 
+            // 當成員或帳目變更時，儲存到檔案
             useEffect(() => {
-                localStorage.setItem('members_v2', JSON.stringify(members));
-            }, [members]);
-
-            useEffect(() => {
-                localStorage.setItem('expenses_v8', JSON.stringify(expenses));
-            }, [expenses]);
+                saveCurrentData({ members, expenses });
+            }, [members, expenses]);
             
+            // 當設定變更時，儲存到檔案
             useEffect(() => {
-                localStorage.setItem('applyPreviousBalance', JSON.stringify(applyPreviousBalance));
-            }, [applyPreviousBalance]);
-            
-            useEffect(() => {
-                localStorage.setItem('useFairSplit', JSON.stringify(useFairSplit));
-            }, [useFairSplit]);
-            
-            useEffect(() => {
-                localStorage.setItem('daGeQuota', JSON.stringify(daGeQuota));
-            }, [daGeQuota]);
+                saveSettings({
+                    applyPreviousBalance,
+                    useFairSplit,
+                    daGeQuota
+                });
+            }, [applyPreviousBalance, useFairSplit, daGeQuota]);
             
             useEffect(() => {
                 // 將歷史紀錄儲存到檔案
