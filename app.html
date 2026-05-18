@@ -37,53 +37,40 @@
         const fs = window.require ? window.require('fs') : null;
         const path = window.require ? window.require('path') : null;
         
-        // 資料檔案路徑 - 統一使用專案根目錄，讓 git 可以追蹤
+        // 資料檔案路徑 - 開發時用專案根目錄，打包後用應用程式執行檔所在目錄
         const getDataPath = () => {
             if (fs && path) {
-                let projectRoot;
+                let appRoot;
                 try {
-                    // 判斷是否為打包環境：檢查路徑中是否包含 node_modules
+                    // 判斷是否為打包環境
                     const isPackaged = process.resourcesPath && !process.resourcesPath.includes('node_modules');
                     
                     if (isPackaged) {
-                        // 打包後的 exe：從 resources 目錄往上找專案根目錄
-                        // 路徑結構：MyCalculator/分攤計算器-win32-x64/resources/app/
-                        // 我們要往上兩層到 分攤計算器-win32-x64，再往上一層到 MyCalculator
-                        const resourcesDir = path.dirname(process.resourcesPath); // 分攤計算器-win32-x64
-                        projectRoot = path.join(resourcesDir, '..'); // MyCalculator (專案根目錄)
-                        
-                        // 驗證是否找到正確的專案根目錄
-                        if (!fs.existsSync(path.join(projectRoot, 'package.json'))) {
-                            // 如果沒找到，嘗試其他路徑
-                            projectRoot = resourcesDir;
-                        }
-                        console.log('[打包模式] 專案根目錄:', projectRoot);
+                        // 打包後：data 資料夾放在應用程式執行檔的同層目錄
+                        // 路徑結構：分攤計算器-win32-x64/分攤計算器.exe
+                        //          分攤計算器-win32-x64/data/history.json ← 這裡
+                        appRoot = path.dirname(process.resourcesPath); // 分攤計算器-win32-x64
+                        console.log('[打包模式] 應用程式根目錄:', appRoot);
+                        console.log('[打包模式] resourcesPath:', process.resourcesPath);
                     } else {
-                        // 開發環境：直接使用 process.cwd()，因為執行 npm start 時就在專案根目錄
-                        projectRoot = process.cwd();
-                        console.log('[開發模式] 使用 process.cwd() 作為專案根目錄:', projectRoot);
-                        
-                        // 驗證 package.json 是否存在
-                        const packagePath = path.join(projectRoot, 'package.json');
-                        if (!fs.existsSync(packagePath)) {
-                            console.warn('[開發模式] 警告：在當前目錄找不到 package.json:', packagePath);
-                        } else {
-                            console.log('[開發模式] 確認找到 package.json');
-                        }
+                        // 開發環境：使用專案根目錄 (執行 npm start 的目錄)
+                        appRoot = process.cwd();
+                        console.log('[開發模式] 專案根目錄:', appRoot);
                     }
                 } catch (e) {
-                    console.error('無法取得專案路徑:', e);
-                    projectRoot = process.cwd();
+                    console.error('無法取得路徑:', e);
+                    appRoot = process.cwd();
                 }
                 
-                const dataDir = path.join(projectRoot, 'data');
+                const dataDir = path.join(appRoot, 'data');
                 // 確保 data 資料夾存在
                 if (!fs.existsSync(dataDir)) {
+                    console.log('建立 data 資料夾:', dataDir);
                     fs.mkdirSync(dataDir, { recursive: true });
                 }
                 
                 const historyPath = path.join(dataDir, 'history.json');
-                console.log('歷史記錄儲存位置:', historyPath);
+                console.log('✓ 歷史記錄儲存位置:', historyPath);
                 return historyPath;
             }
             return null;
