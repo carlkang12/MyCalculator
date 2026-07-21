@@ -1,5 +1,251 @@
 [
   {
+    "id": 1784622460600,
+    "date": "2026/7/21 下午4:27:40",
+    "month": "2026年7月",
+    "summary": {
+      "totalPool": 44887,
+      "totalPaid": 36887,
+      "ergeShouldPay": 36887,
+      "finalBalance": 0,
+      "publicFund": 0,
+      "details": {
+        "二哥": {
+          "paid": 36887,
+          "shouldPay": 36887,
+          "currentPeriodShouldPay": 14962.333333333336,
+          "previousBalance": 0,
+          "originalShouldPay": 14962.333333333336
+        },
+        "大哥": {
+          "paid": 0,
+          "shouldPay": 35775.38888888889,
+          "currentPeriodShouldPay": 14962.333333333336,
+          "previousBalance": -13504.833333333332,
+          "originalShouldPay": 28467.166666666668,
+          "quotaInfo": {
+            "originalShouldPay": 35775.38888888889,
+            "quotaAvailable": 35495.16666666667,
+            "quotaUsed": 35495.16666666667,
+            "actualShouldPay": 280.222222222219,
+            "quotaRemaining": 0,
+            "nextMonthQuota": 10000
+          }
+        },
+        "三弟": {
+          "paid": 23000,
+          "shouldPay": 27763.388888888894,
+          "currentPeriodShouldPay": 14962.333333333336,
+          "previousBalance": -5492.833333333334,
+          "originalShouldPay": 20455.16666666667
+        }
+      },
+      "transfers": [],
+      "transferType": "all_underpaid",
+      "totalOverpaid": 0,
+      "totalUnderpaid": 40538.77777777778,
+      "averageBalance": 0,
+      "balanceDetails": [],
+      "isFairSplit": true,
+      "daGeQuotaInfo": {
+        "originalShouldPay": 35775.38888888889,
+        "quotaAvailable": 35495.16666666667,
+        "quotaUsed": 35495.16666666667,
+        "actualShouldPay": 280.222222222219,
+        "quotaRemaining": 0,
+        "nextMonthQuota": 10000
+      }
+    },
+    "rawExpenses": [
+      {
+        "id": 1784622440320,
+        "title": "個人當月支付",
+        "amount": "10000",
+        "type": "personal",
+        "payer": "三弟",
+        "splitWith": []
+      },
+      {
+        "id": 1784622427358,
+        "title": "個人當月支付",
+        "amount": "5000",
+        "type": "personal",
+        "payer": "三弟",
+        "splitWith": []
+      },
+      {
+        "id": 1784622257340,
+        "title": "用餐費用",
+        "amount": "3000",
+        "type": "public",
+        "payer": "三弟",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784622247284,
+        "title": "車租",
+        "amount": "5000",
+        "type": "public",
+        "payer": "三弟",
+        "splitWith": [
+          "三弟",
+          "大哥",
+          "二哥"
+        ]
+      },
+      {
+        "id": 1784622236005,
+        "title": "車租",
+        "amount": "5000",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784622113930,
+        "title": "7月食材費",
+        "amount": "5000",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784622060650,
+        "title": "保險6月",
+        "amount": "5219",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621967392,
+        "title": "保險5月",
+        "amount": "5037",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621949977,
+        "title": "網路費06/23",
+        "amount": "3897",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621939327,
+        "title": "電費6/26",
+        "amount": "5428",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621912256,
+        "title": "水 07/07",
+        "amount": "588",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621891217,
+        "title": "瓦斯費05/22",
+        "amount": "578",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621846511,
+        "title": "電話費5/25",
+        "amount": "70",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621830159,
+        "title": "電話費4/28",
+        "amount": "72",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621816159,
+        "title": "水費(單月)5/12",
+        "amount": "696",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      },
+      {
+        "id": 1784621799654,
+        "title": "電/(4/24",
+        "amount": "5302",
+        "type": "public",
+        "payer": "二哥",
+        "splitWith": [
+          "二哥",
+          "大哥",
+          "三弟"
+        ]
+      }
+    ],
+    "daGeQuotaAtTime": 35495.16666666667,
+    "useFairSplitAtTime": true
+  },
+  {
     "id": 1774950641343,
     "date": "2026/3/31 下午5:50:41",
     "month": "2026年3月",

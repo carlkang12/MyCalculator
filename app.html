@@ -837,7 +837,7 @@
                     ex.title,
                     parseFloat(ex.amount),
                     ex.type === 'public' ? '公費' : '代墊',
-                    ex.type === 'public' ? '二哥' : ex.payer,
+                    ex.payer,
                     ex.splitWith.join(', ')
                 ]);
 
@@ -1713,7 +1713,7 @@
                                                                         </span>
                                                                         <p className="font-bold text-slate-800 text-sm">{ex.title || '無名稱項目'}</p>
                                                                     </div>
-                                                                    <p className="text-[10px] text-slate-400 font-medium">支付者：{ex.type === 'public' ? '二哥' : ex.payer} | 分攤：{ex.splitWith.join(', ')}</p>
+                                                                    <p className="text-[10px] text-slate-400 font-medium">支付者：{ex.payer} | 分攤：{ex.splitWith.join(', ')}</p>
                                                                 </div>
                                                                 <p className="font-black font-mono text-slate-700">${Math.round(ex.amount).toLocaleString()}</p>
                                                             </div>
